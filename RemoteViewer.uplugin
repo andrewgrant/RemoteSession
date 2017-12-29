@@ -1,0 +1,34 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "RemoteViewer",
+	"Description": "Remote Viewing",
+	"Category": "Other",
+	"CreatedBy": "Andrew Grant",
+	"CreatedByURL": "https://github.com/andrewgrant/RemoteViewer",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "RemoteViewer",
+			"Type": "Developer",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "RemoteViewerController",
+			"Type": "Developer",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [                       
+     {                              
+       "Name": "BackChannel",
+       "Enabled": true 
+     }
+   ]   
+}
