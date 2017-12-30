@@ -1,5 +1,6 @@
 // Copyright 2017 Andrew Grant
-// Licensed under BSD License 2.0. 
+// This file is part of RemoteViewer and is freely licensed for commercial and 
+// non-commercial use under an MIT license
 // See https://github.com/andrewgrant/RemoteViewer for more info
 
 #pragma once
@@ -18,7 +19,12 @@ public:
 
 	bool StartListening(const uint16 Port);
 
-	virtual void Tick() override;
+	void SetScreenSharing(const bool bEnabled);
+
+	void SetConsumeInput(const bool bConsume);
+
+
+	virtual void Tick(float DeltaTime) override;
 
 protected:
 
@@ -33,4 +39,5 @@ protected:
 	TSharedPtr<FRecordingMessageHandler>	PlaybackMessageHandler;
 
 	double LastImageTime;
+	bool bScreenSharingEnabled;
 };

@@ -1,5 +1,6 @@
 // Copyright 2017 Andrew Grant
-// Licensed under BSD License 2.0. 
+// This file is part of RemoteViewer and is freely licensed for commercial and 
+// non-commercial use under an MIT license
 // See https://github.com/andrewgrant/RemoteViewer for more info
 
 #include "RemoteViewer.h"
@@ -19,15 +20,11 @@ class FRemoteViewerModule : public IRemoteViewerModule, public FTickableGameObje
 {
 protected:
 
-	FString								HostAddress;
-
 	TSharedPtr<FRemoteViewerHost>		Host;
 	TSharedPtr<FRemoteViewerClient>		Client;
 
 	// todo - icky
 	FRemoteViewerReceivedImageDelegate		ClientReceivedDelegate;
-	float									ClientConnectionTimer;
-	bool									ClientIsConnected;
 
 public:
 	void StartupModule()
@@ -39,9 +36,6 @@ public:
 			InitHost();
 		}
 #endif
-
-		ClientConnectionTimer = 0.0f;
-		ClientIsConnected = false;
 	}
 
 	void ShutdownModule()
@@ -57,15 +51,16 @@ public:
 			Client = nullptr;
 		}
 
-		Client = MakeShareable(new FRemoteViewerClient());
+		Client = MakeShareable(new FRemoteViewerClient(RemoteAddress));
 
-		HostAddress = RemoteAddress;
-		if (HostAddress.Contains(TEXT(":")) == false)
+		// if the host is already running then this is a loopback connection so we want
+		// to consume all input by default, and disable screen sharing
+		if (IsHostRunning())
 		{
-			HostAddress += TEXT(":1313");
+			Host->SetConsumeInput(true);
+			Client->SetConsumeInput(true);
+			Host->SetScreenSharing(false);
 		}
-
-		UE_LOG(LogRemoteViewer, Display, TEXT("Will attempt to connect to %s.."), *HostAddress);
 	}
 
 	virtual bool IsClientConnected() const override
@@ -92,7 +87,7 @@ public:
 
 		TSharedPtr<FRemoteViewerHost> NewHost = MakeShareable(new FRemoteViewerHost());
 
-		int16 SelectedPort = Port ? Port : 1313;
+		int16 SelectedPort = Port ? Port : IRemoteViewerModule::kDefaultPort;
 
 		if (NewHost->StartListening(SelectedPort))
 		{
@@ -132,60 +127,40 @@ public:
 
 	virtual void Tick(float DeltaTime) override
 	{
-		bool ClientIsValid = Client.IsValid();
-		bool NewClientIsConnected = ClientIsValid && Client->IsConnected();
+		bool ClientIsConnected = Client.IsValid() && Client->IsConnected();
+		bool HostIsConnected = Host.IsValid() && Host->IsConnected();
 
-		if (NewClientIsConnected == false && ClientIsConnected)
+		bool DisabledClientRecording = false;
+
+		// mostly these ifs() are to deal with the case of loopback testing where the host should only respond
+		// to input from the client, the client should not record anything it sends
+		
+		bool IsLoopBack = HostIsConnected && ClientIsConnected;
+
+		if (IsLoopBack)
 		{
-			UE_LOG(LogRemoteViewer, Warning, TEXT("Closing Client due to disconnection."));
-			ClientIsConnected = false;
+			// disable client so it doesn't record what we're about to send...
+			Client->SetRecording(false);
+			DisabledClientRecording = true;
 		}
 
-		if (ClientIsValid)
-		{	
-			if (HostAddress.Len() && ClientIsConnected == false)
-			{
-				ClientConnectionTimer += DeltaTime;
-
-				if (ClientConnectionTimer >= 5.0f)
-				{
-					UE_LOG(LogRemoteViewer, Display, TEXT("Attempting to connect to %s.."), *HostAddress);
-
-					if (Client->Connect(*HostAddress))
-					{
-						// if loopback, tell the client not to respond directly
-						if (Host.IsValid())
-						{
-							Client->SetConsumeInput(true);
-						}
-
-						UE_LOG(LogRemoteViewer, Log, TEXT("Connected to host at %s"), *HostAddress);
-						ClientIsConnected = true;
-					}
-
-					ClientConnectionTimer = 0.0f;
-				}
-			}
-
+		if (Client.IsValid())
+		{
+			Client->Tick(DeltaTime);
 			Client->GetClientImageReceivedDelegate() = ClientReceivedDelegate;
-			Client->Tick();
-			ClientIsConnected = NewClientIsConnected;
 		}
-	
+
 		if (Host.IsValid())
 		{
-			// disable client if it exists, so it doesn't record what we're about to send...
-			if (ClientIsConnected)
-			{
-				Client->SetRecording(false);
-			}
+			// tick the host, and allow it to pass through input
+			Host->SetConsumeInput(false);
+			Host->Tick(DeltaTime);
+			Host->SetConsumeInput(IsLoopBack);
+		}
 
-			Host->Tick();
-
-			if (ClientIsConnected)
-			{
-				Client->SetRecording(true);
-			}
+		if (DisabledClientRecording)
+		{
+			Client->SetRecording(true);
 		}
 	}	
 };

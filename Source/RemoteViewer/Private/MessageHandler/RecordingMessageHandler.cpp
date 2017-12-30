@@ -1,10 +1,10 @@
 // Copyright 2017 Andrew Grant
-// Licensed under BSD License 2.0. 
+// This file is part of RemoteViewer and is freely licensed for commercial and 
+// non-commercial use under an MIT license
 // See https://github.com/andrewgrant/RemoteViewer for more info
 
 #include "RecordingMessageHandler.h"
 #include "RemoteViewer.h"
-#include "MessageTypes.h"
 #include "BackChannel/Protocol/OSC/BackChannelOSC.h"
 #include "BufferArchive.h"
 #include "MemoryReader.h"
@@ -265,6 +265,11 @@ bool FRecordingMessageHandler::OnTouchMoved(const FVector2D& Location, int32 Tou
 		OutputWriter->RecordMessage(TEXT("OnTouchMoved"), Msg.AsData());
 	}
 
+	if (ConsumeInput)
+	{
+		return true;
+	}
+
 	return FProxyMessageHandler::OnTouchMoved(Location, TouchIndex, ControllerId);
 }
 
@@ -281,6 +286,11 @@ bool FRecordingMessageHandler::OnTouchEnded(const FVector2D& Location, int32 Tou
 	{
 		ThreeParamMsg<FVector2D, int32, int32> Msg(ConvertToNormalizedScreenLocation(Location), TouchIndex, ControllerId);
 		OutputWriter->RecordMessage(TEXT("OnTouchEnded"), Msg.AsData());
+	}
+
+	if (ConsumeInput)
+	{
+		return true;
 	}
 
 	return FProxyMessageHandler::OnTouchEnded(Location, TouchIndex, ControllerId);

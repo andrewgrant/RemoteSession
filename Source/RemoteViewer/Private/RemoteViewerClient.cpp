@@ -1,5 +1,6 @@
 // Copyright 2017 Andrew Grant
-// Licensed under BSD License 2.0. 
+// This file is part of RemoteViewer and is freely licensed for commercial and 
+// non-commercial use under an MIT license
 // See https://github.com/andrewgrant/RemoteViewer for more info
 
 #include "RemoteViewerClient.h"
@@ -8,17 +9,46 @@
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
 
-FRemoteViewerClient::FRemoteViewerClient()
+FRemoteViewerClient::FRemoteViewerClient(const TCHAR* InHostAddress)
 {
-	
+	HostAddress = InHostAddress;
+	ConnectionAttemptTimer = FLT_MAX;		// attempt a connection asap
+	RemoteImage = nullptr;
+
+	if (HostAddress.Contains(TEXT(":")) == false)
+	{
+		HostAddress += FString::Printf(TEXT(":%d"), (int32)IRemoteViewerModule::kDefaultPort);
+	}
+
+	DefaultHandler = FSlateApplication::Get().GetPlatformApplication()->GetMessageHandler();
+
+	RecordingHandler = MakeShareable(new FRecordingMessageHandler(DefaultHandler.Pin()));
+
+	RecordingHandler->SetRecordingHandler(this);
+
+	FSlateApplication::Get().GetPlatformApplication()->SetMessageHandler(RecordingHandler.ToSharedRef());
+
+	UE_LOG(LogRemoteViewer, Display, TEXT("Will attempt to connect to %s.."), *HostAddress);
 }
 
 FRemoteViewerClient::~FRemoteViewerClient()
 {
+	// todo - is this ok? Might other things have changed the handler like we do?
+	if (DefaultHandler.IsValid())
+	{
+		FSlateApplication::Get().GetPlatformApplication()->SetMessageHandler(DefaultHandler.Pin().ToSharedRef());
+	}
+
 	// should restore handler? What if something else changed it...
 	if (RecordingHandler.IsValid())
 	{
 		RecordingHandler->SetRecordingHandler(nullptr);
+	}
+
+	if (RemoteImage)
+	{
+		RemoteImage->RemoveFromRoot();
+		RemoteImage = nullptr;
 	}
 }
 
@@ -43,43 +73,50 @@ FRemoteViewerReceivedImageDelegate& FRemoteViewerClient::GetClientImageReceivedD
 	return ReceivedImageDelegate;
 }
 
-bool FRemoteViewerClient::Connect(const TCHAR* Address)
+void FRemoteViewerClient::Tick(float DeltaTime)
 {
-	if (OSCConnection.IsValid())
+	FRemoteViewerRole::Tick(DeltaTime);
+
+	if (IsConnected() == false)
 	{
-		return false;
+		ConnectionAttemptTimer += DeltaTime;
+
+		if (ConnectionAttemptTimer >= 5.0f)
+		{
+			Connect();
+
+			ConnectionAttemptTimer = 0.0f;
+		}
 	}
+}
 
-	if (RecordingHandler.IsValid() == false && DefaultHandler.IsValid() == false)
-	{
-		DefaultHandler = FSlateApplication::Get().GetPlatformApplication()->GetMessageHandler();
 
-		RecordingHandler = MakeShareable(new FRecordingMessageHandler(DefaultHandler.Pin()));
+bool FRemoteViewerClient::Connect()
+{
+	check(OSCConnection.IsValid() == false);
 
-		RecordingHandler->SetRecordingHandler(this);
-
-		FSlateApplication::Get().GetPlatformApplication()->SetMessageHandler(RecordingHandler.ToSharedRef());
-	}
+	UE_LOG(LogRemoteViewer, Display, TEXT("Attempting to connect to %s.."), *HostAddress);
 
 	if (IBackChannelTransport* Transport = IBackChannelTransport::Get())
 	{
 		TSharedPtr<IBackChannelConnection> Connection = Transport->CreateConnection(IBackChannelTransport::TCP);
 
-		if (Connection.IsValid() && Connection->Connect(Address))
+		if (Connection.IsValid() && Connection->Connect(*HostAddress))
 		{
 			OSCConnection = MakeShareable(new FBackChannelOSCConnection(Connection.ToSharedRef()));
 
-			OSCConnection->GetDispatchMap().GetAddressHandler(TEXT("/Screen")).AddRaw(this, &FRemoteViewerClient::ReceivedImage);
+			OSCConnection->GetDispatchMap().GetAddressHandler(TEXT("/Screen")).AddRaw(this, &FRemoteViewerClient::UpdateRemoteImage);
 
 			OSCConnection->SetMessageOptions(TEXT("/Screen"), 1);
 
 			OSCConnection->Start();
+
+			UE_LOG(LogRemoteViewer, Log, TEXT("Connected to host at %s"), *HostAddress);
 		}		
 	}
 
 	return OSCConnection.IsValid();
 }
-
 
 void FRemoteViewerClient::RecordMessage(const TCHAR* MsgName, const TArray<uint8>& Data)
 {
@@ -93,6 +130,36 @@ void FRemoteViewerClient::RecordMessage(const TCHAR* MsgName, const TArray<uint8
 
 		OSCConnection->SendPacket(Msg);
 	}
+}
+
+void FRemoteViewerClient::CreateRemoteImage(const int32 InWidth, const int32 InHeight)
+{
+	if (RemoteImage)
+	{
+		RemoteImage->RemoveFromRoot();
+		RemoteImage = nullptr;
+	}
+
+	RemoteImage = UTexture2D::CreateTransient(InWidth, InHeight);
+
+	RemoteImage->AddToRoot();
+	RemoteImage->UpdateResource();
+
+	ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(UpdateTexture,
+		FTexture2DResource*, TextureResource, (FTexture2DResource*)RemoteImage->Resource,
+		{
+			FTexture2DRHIRef RHIRef = TextureResource->GetTexture2DRHI();
+			uint32 Stride = 0;
+
+			FLinearColor* TextureBuffer = (FLinearColor*)RHILockTexture2D(RHIRef, 0, RLM_WriteOnly, Stride, false);
+
+			for (uint32 i = 0; i < TextureResource->GetSizeX() * TextureResource->GetSizeY(); i++)
+			{
+				//TextureBuffer[i] = FLinearColor::Green;
+			}
+
+			RHIUnlockTexture2D(RHIRef, 0, false);
+		});
 }
 
 void UpdateTextureRegions(UTexture2D* Texture, int32 MipIndex, uint32 NumRegions, FUpdateTextureRegion2D* Regions, uint32 SrcPitch, uint32 SrcBpp, uint8* SrcData, bool bFreeData)
@@ -152,7 +219,7 @@ void UpdateTextureRegions(UTexture2D* Texture, int32 MipIndex, uint32 NumRegions
 	}
 }
 
-void FRemoteViewerClient::ReceivedImage(FBackChannelOSCMessage& Message, FBackChannelOSCDispatch& Dispatch)
+void FRemoteViewerClient::UpdateRemoteImage(FBackChannelOSCMessage& Message, FBackChannelOSCDispatch& Dispatch)
 {
 	static int32 Width(0);
 	static int32 Height(0);
@@ -175,46 +242,44 @@ void FRemoteViewerClient::ReceivedImage(FBackChannelOSCMessage& Message, FBackCh
 
 		if (ImageWrapper->GetRaw(ERGBFormat::BGRA, 8, RawData))
 		{
-			static FTexture2DRHIRef TexRef = nullptr;
-			static UTexture2D* DynamicTexture = nullptr;
-
-			if (DynamicTexture == nullptr || Width != DynamicTexture->GetSizeX() || Height != DynamicTexture->GetSizeY())
+			if (RemoteImage == nullptr || Width != RemoteImage->GetSizeX() || Height != RemoteImage->GetSizeY())
 			{
-				DynamicTexture = UTexture2D::CreateTransient(Width, Height);
-				DynamicTexture->AddToRoot();
-				DynamicTexture->UpdateResource();
+				CreateRemoteImage(Width, Height);
 			}
 
-			const size_t DataLen = Width * Height * 8;
+			const size_t DataLen = RawData->Num();
 			uint8* DataCopy = (uint8*)FMemory::Malloc(DataLen);
 			FMemory::Memcpy(DataCopy, RawData->GetData(), DataLen);
 
-			//TSharedPtr<TArray<uint8>> DataCopy = MakeShareable(new TArray<uint8>(*RawData));
-			
 #if 1
 			FUpdateTextureRegion2D* Region = new FUpdateTextureRegion2D(0, 0, 0, 0, Width, Height);
 			
-			// update and free data
-			UpdateTextureRegions(DynamicTexture, 0, 1, Region, 4 * Width, 8, DataCopy, true);
-			DynamicTexture->UpdateResource();
-#else
+			RemoteImage->UpdateTextureRegions(0, 1, Region, 4 * Width, 8, DataCopy, [](auto TextureData, auto Regions) {
+				FMemory::Free(TextureData);
+				delete Regions;
+			});
 
+			// update and free data
+			//UpdateTextureRegions(RemoteImage, 0, 1, Region, 4 * Width, 8, DataCopy, true);
+			//RemoteImage->UpdateResource();
+#else
+			
 			ENQUEUE_UNIQUE_RENDER_COMMAND_THREEPARAMETER(UpdateTexture,
-				FTexture2DResource*, TextureResource, (FTexture2DResource*)DynamicTexture->Resource,
-				TSharedPtr<TArray<uint8>>, DataCopy, DataCopy,
-				int32, DataLen, 0,
+				FTexture2DResource*, TextureResource, (FTexture2DResource*)RemoteImage->Resource,
+				uint8*, DataCopy, DataCopy,
+				int32, DataLen, DataLen,
 				{
 					FTexture2DRHIRef RHIRef = TextureResource->GetTexture2DRHI();
 					uint32 Stride = 0;
 					uint8* TextureBuffer = (uint8*)RHILockTexture2D(RHIRef, 0, RLM_WriteOnly, Stride, false);
-					FMemory::Memcpy(TextureBuffer, DataCopy->GetData(), DataCopy->Num());
+					FMemory::Memcpy(TextureBuffer, DataCopy, DataLen);
 					RHIUnlockTexture2D(RHIRef, 0, false);
+					FMemory::Free(DataCopy);
 				});
+				
 #endif
 
-			ReceivedImageDelegate.ExecuteIfBound(DynamicTexture);
-
+			ReceivedImageDelegate.ExecuteIfBound(RemoteImage);
 		}
 	}
-
 }

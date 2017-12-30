@@ -16,12 +16,7 @@
 	"Modules": [
 		{
 			"Name": "RemoteViewer",
-			"Type": "Developer",
-			"LoadingPhase": "Default"
-		},
-		{
-			"Name": "RemoteViewerController",
-			"Type": "Developer",
+			"Type": "RuntimeNoCommandlet",
 			"LoadingPhase": "Default"
 		}
 	],

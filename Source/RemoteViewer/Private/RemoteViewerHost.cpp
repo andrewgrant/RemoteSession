@@ -1,5 +1,6 @@
 // Copyright 2017 Andrew Grant
-// Licensed under BSD License 2.0. 
+// This file is part of RemoteViewer and is freely licensed for commercial and 
+// non-commercial use under an MIT license
 // See https://github.com/andrewgrant/RemoteViewer for more info
 
 #include "RemoteViewerHost.h"
@@ -12,8 +13,22 @@
 FRemoteViewerHost::FRemoteViewerHost()
 {
 	LastImageTime = 0;
-
+	bScreenSharingEnabled = true;
 }
+
+void FRemoteViewerHost::SetScreenSharing(const bool bEnabled)
+{
+	bScreenSharingEnabled = bEnabled;
+}
+
+void FRemoteViewerHost::SetConsumeInput(const bool bConsume)
+{
+	if (PlaybackMessageHandler.IsValid())
+	{
+		PlaybackMessageHandler->SetConsumeInput(bConsume);
+	}
+}
+
 
 bool FRemoteViewerHost::StartListening(const uint16 InPort)
 {
@@ -70,15 +85,15 @@ void FRemoteViewerHost::OnRemoteMessage(FBackChannelOSCMessage& Message, FBackCh
 }
 
 
-void FRemoteViewerHost::Tick()
+void FRemoteViewerHost::Tick(float DeltaTime)
 {
-	FRemoteViewerRole::Tick();
+	FRemoteViewerRole::Tick(DeltaTime);
 
-	static float ImageFPS = 1 / 20.0f;
+	static float ImageFPS = 1 / 60.0f;
 
 	const float TimeSinceLastImage = FPlatformTime::Seconds() - LastImageTime;
 
-	if (TimeSinceLastImage >= ImageFPS)
+	if (TimeSinceLastImage >= ImageFPS && bScreenSharingEnabled)
 	{
 		LastImageTime = FPlatformTime::Seconds();
 

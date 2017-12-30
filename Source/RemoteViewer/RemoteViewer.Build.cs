@@ -1,5 +1,6 @@
 // Copyright 2017 Andrew Grant
-// Licensed under BSD License 2.0. 
+// This file is part of RemoteViewer and is freely licensed for commercial and 
+// non-commercial use under an MIT license
 // See https://github.com/andrewgrant/RemoteViewer for more info
 
 using UnrealBuildTool;
@@ -15,7 +16,7 @@ public class RemoteViewer : ModuleRules
 				"RemoteViewer/Public"
 				// ... add public include paths required here ...
 			}
-			);
+		);
 				
 		
 		PrivateIncludePaths.AddRange(
@@ -23,7 +24,7 @@ public class RemoteViewer : ModuleRules
 				"RemoteViewer/Private",
 				// ... add other private include paths required here ...
 			}
-			);
+		);
 			
 		
 		PublicDependencyModuleNames.AddRange(
@@ -32,7 +33,7 @@ public class RemoteViewer : ModuleRules
 				"Core",
 				// ... add other public dependencies that you statically link with here ...
 			}
-			);
+		);
 			
 		
 		PrivateDependencyModuleNames.AddRange(
@@ -44,12 +45,10 @@ public class RemoteViewer : ModuleRules
 				"SlateCore",
 				"InputDevice",
 				"InputCore",
-				"RemoteViewerController",
 				"BackChannel",
 				"RenderCore",
 				"RHI",
 				"ImageWrapper"
-				// ... add private dependencies that you statically link with here ...	
 			}
 		);
 		
