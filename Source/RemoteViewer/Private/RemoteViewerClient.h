@@ -42,6 +42,7 @@ protected:
 
 	FString		HostAddress;
 	double		ConnectionAttemptTimer;
+	double		LastConnectionAttemptTime;
 
 	TWeakPtr<FGenericApplicationMessageHandler> DefaultHandler;
 	TSharedPtr<FRecordingMessageHandler> RecordingHandler;

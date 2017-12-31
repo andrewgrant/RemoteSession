@@ -13,6 +13,7 @@ FRemoteViewerClient::FRemoteViewerClient(const TCHAR* InHostAddress)
 {
 	HostAddress = InHostAddress;
 	ConnectionAttemptTimer = FLT_MAX;		// attempt a connection asap
+	LastConnectionAttemptTime = 0;
 	RemoteImage = nullptr;
 
 	if (HostAddress.Contains(TEXT(":")) == false)
@@ -81,11 +82,13 @@ void FRemoteViewerClient::Tick(float DeltaTime)
 	{
 		ConnectionAttemptTimer += DeltaTime;
 
-		if (ConnectionAttemptTimer >= 5.0f)
+		const double TimeSinceLastConnection = FPlatformTime::Seconds() - LastConnectionAttemptTime;
+
+		if (TimeSinceLastConnection >= 5.0f)
 		{
 			Connect();
 
-			ConnectionAttemptTimer = 0.0f;
+			LastConnectionAttemptTime = FPlatformTime::Seconds();
 		}
 	}
 }
