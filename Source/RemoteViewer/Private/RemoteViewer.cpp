@@ -9,6 +9,10 @@
 #include "RemoteViewerHost.h"
 #include "RemoteViewerClient.h"
 
+#if WITH_EDITOR
+#include "Editor.h"
+#endif
+
 #define LOCTEXT_NAMESPACE "FRemoteViewerModule"
 
 
@@ -30,10 +34,17 @@ public:
 	void StartupModule()
 	{
 #if REMOTEVIEWER_AUTOINIT_HOST
-		// Change this to test to create a loop back connection
 		if (PLATFORM_DESKTOP)
 		{
 			InitHost();
+		}
+#endif
+
+#if WITH_EDITOR
+		if (GIsEditor)
+		{
+			FEditorDelegates::PostPIEStarted.AddRaw(this, &FRemoteViewerModule::OnPIEStarted);
+			FEditorDelegates::EndPIE.AddRaw(this, &FRemoteViewerModule::OnPIEEnded);
 		}
 #endif
 	}
@@ -61,6 +72,16 @@ public:
 			Client->SetConsumeInput(true);
 			Host->SetScreenSharing(false);
 		}
+	}
+
+	void OnPIEStarted(bool bSimulating)
+	{
+		InitHost();
+	}
+
+	void OnPIEEnded(bool bSimulating)
+	{
+		StopHost();
 	}
 
 	virtual bool IsClientConnected() const override

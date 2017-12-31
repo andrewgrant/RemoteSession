@@ -14,6 +14,13 @@ FRemoteViewerHost::FRemoteViewerHost()
 {
 	LastImageTime = 0;
 	bScreenSharingEnabled = true;
+
+	EndFrameDelegate = FCoreDelegates::OnEndFrame.AddRaw(this, &FRemoteViewerHost::OnEndFrame);
+}
+
+FRemoteViewerHost::~FRemoteViewerHost()
+{
+	FCoreDelegates::OnEndFrame.Remove(EndFrameDelegate);
 }
 
 void FRemoteViewerHost::SetScreenSharing(const bool bEnabled)
@@ -84,87 +91,77 @@ void FRemoteViewerHost::OnRemoteMessage(FBackChannelOSCMessage& Message, FBackCh
 	PlaybackMessageHandler->PlayMessage(*MessageName, MsgData);
 }
 
+void FRemoteViewerHost::OnEndFrame()
+{
+	if (IsConnected() == false || bScreenSharingEnabled == false)
+	{
+		return;
+	}
+
+	UGameViewportClient* ViewportClient = GEngine->GameViewport;
+	
+	FViewport* Viewport = ViewportClient->Viewport;
+
+	if (Viewport->IsPlayInEditorViewport() == false)
+	{
+		FTexture2DRHIRef TextureRef = RHIGetViewportBackBuffer(Viewport->GetViewportRHI());
+
+		ENQUEUE_RENDER_COMMAND(CaptureScreen)(
+			[this, Viewport](FRHICommandListImmediate& RHICmdList)
+		{
+			FIntPoint Size = Viewport->GetSizeXY();
+			FIntRect Rect = FIntRect(FIntPoint(0, 0), Size);
+
+			TArray<FLinearColor> LinearData;
+
+			FTexture2DRHIRef BackBuffer = RHICmdList.GetViewportBackBuffer(Viewport->GetViewportRHI());
+			RHICmdList.ReadSurfaceData(BackBuffer, Rect, LinearData, FReadSurfaceDataFlags());
+
+			// Hmm.
+			TArray<FColor> ImageData;
+			for (FLinearColor& LinearColor : LinearData)
+			{
+				FColor Color = LinearColor.ToFColor(false);
+				Color.A = 255;
+				ImageData.Add(Color);
+			}
+
+			SendImageToClients(Size.X, Size.Y, ImageData);
+		}
+		);
+	}
+	else
+	{
+		FTexture2DRHIRef TextureRef = Viewport->GetRenderTargetTexture();
+
+		ENQUEUE_RENDER_COMMAND(CaptureScreen)(
+			[this, TextureRef, Viewport](FRHICommandListImmediate& RHICmdList)
+		{
+			FIntPoint Size = Viewport->GetSizeXY();
+			FIntRect Rect = FIntRect(FIntPoint(0, 0), Size);
+
+			TArray<FLinearColor> LinearData;
+
+			RHICmdList.ReadSurfaceData(TextureRef, Rect, LinearData, FReadSurfaceDataFlags());
+
+			// Hmm.
+			TArray<FColor> ImageData;
+			for (FLinearColor& LinearColor : LinearData)
+			{
+				FColor Color = LinearColor.ToFColor(false);
+				Color.A = 255;
+				ImageData.Add(Color);
+			}
+
+			SendImageToClients(Size.X, Size.Y, ImageData);
+		});
+	}
+}
+
 
 void FRemoteViewerHost::Tick(float DeltaTime)
 {
 	FRemoteViewerRole::Tick(DeltaTime);
-
-	static float ImageFPS = 1 / 60.0f;
-
-	const float TimeSinceLastImage = FPlatformTime::Seconds() - LastImageTime;
-
-	if (TimeSinceLastImage >= ImageFPS && bScreenSharingEnabled)
-	{
-		LastImageTime = FPlatformTime::Seconds();
-
-		TSharedPtr<SViewport> port;
-		TWeakPtr<ISlateViewport> SViewport = FSlateApplication::Get().GetGameViewport()->GetViewportInterface();
-
-		UGameViewportClient* ViewportClient = GEngine->GameViewport;
-		FViewport* Viewport = ViewportClient->Viewport;
-
-		// todo - make non-shitty, chek PIE etc
-		if (FSlateApplication::IsInitialized())
-		{
-			FIntVector Size(Viewport->GetSizeXY().X, Viewport->GetSizeXY().Y, 0);
-
-			TArray<FColor> Bitmap;
-
-			TSharedRef<SWidget> WindowRef = ViewportClient->GetWindow().ToSharedRef();
-			if (FSlateApplication::Get().TakeScreenshot(WindowRef, Bitmap, Size))
-			{
-				for (FColor& Pixel : Bitmap)
-				{
-					Pixel.A = 255;
-				}
-
-				SendImageToClients(Size.X, Size.Y, Bitmap);
-			}
-			else
-			{
-				UE_LOG(LogRemoteViewer, Error, TEXT("Failed to take screenshot!"));
-			}
-		}
-
-#if 0
-		if (SViewport.IsValid())
-		{
-			FSlateShaderResource* ViewportRTT = SViewport.Pin()->GetViewportRenderTargetTexture();
-
-			FViewport* Viewport = GEngine->GameViewport->Viewport;
-
-			if (Viewport && Viewport->GetRenderTargetTexture().IsValid())
-			{
-				TArray<FColor> Bitmap;
-
-				// Read the contents of the viewport into an array.
-				if (Viewport->ReadPixels(Bitmap, FReadSurfaceDataFlags(), FIntRect()))
-				{
-					check(Bitmap.Num() == Viewport->GetSizeXY().X * Viewport->GetSizeXY().Y);
-				}
-			}
-			else
-			{
-				bool bScreenshotSuccessful = false;
-				FIntVector Size(InViewport->GetSizeXY().X, InViewport->GetSizeXY().Y, 0);
-				if (bShowUI && FSlateApplication::IsInitialized())
-				{
-					TSharedRef<SWidget> WindowRef = WindowPtr.ToSharedRef();
-					bScreenshotSuccessful = FSlateApplication::Get().TakeScreenshot(WindowRef, Bitmap, Size);
-					GScreenshotResolutionX = Size.X;
-					GScreenshotResolutionY = Size.Y;
-				}
-
-			}
-
-			if (ViewportRTT)
-			{
-				ESlateShaderResource::Type Type = ViewportRTT->GetType();
-				return;
-			}
-		}
-#endif
-	}
 }
 
 void FRemoteViewerHost::SendImageToClients(int32 Width, int32 Height, const TArray<FColor>& ImageData)

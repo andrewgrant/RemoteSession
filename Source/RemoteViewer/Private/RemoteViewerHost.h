@@ -16,6 +16,7 @@ class FRemoteViewerHost : public FRemoteViewerRole, public TSharedFromThis<FRemo
 public:
 
 	FRemoteViewerHost();
+	~FRemoteViewerHost();
 
 	bool StartListening(const uint16 Port);
 
@@ -34,9 +35,13 @@ protected:
 
 	void		SendImageToClients(int32 Width, int32 Height, const TArray<FColor>& ImageData);
 
+	void		OnEndFrame();
+
 	TSharedPtr<IBackChannelListener> Listener;
 
 	TSharedPtr<FRecordingMessageHandler>	PlaybackMessageHandler;
+
+	FDelegateHandle		EndFrameDelegate;
 
 	double LastImageTime;
 	bool bScreenSharingEnabled;

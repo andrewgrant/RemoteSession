@@ -251,33 +251,12 @@ void FRemoteViewerClient::UpdateRemoteImage(FBackChannelOSCMessage& Message, FBa
 			uint8* DataCopy = (uint8*)FMemory::Malloc(DataLen);
 			FMemory::Memcpy(DataCopy, RawData->GetData(), DataLen);
 
-#if 1
 			FUpdateTextureRegion2D* Region = new FUpdateTextureRegion2D(0, 0, 0, 0, Width, Height);
 			
 			RemoteImage->UpdateTextureRegions(0, 1, Region, 4 * Width, 8, DataCopy, [](auto TextureData, auto Regions) {
 				FMemory::Free(TextureData);
 				delete Regions;
 			});
-
-			// update and free data
-			//UpdateTextureRegions(RemoteImage, 0, 1, Region, 4 * Width, 8, DataCopy, true);
-			//RemoteImage->UpdateResource();
-#else
-			
-			ENQUEUE_UNIQUE_RENDER_COMMAND_THREEPARAMETER(UpdateTexture,
-				FTexture2DResource*, TextureResource, (FTexture2DResource*)RemoteImage->Resource,
-				uint8*, DataCopy, DataCopy,
-				int32, DataLen, DataLen,
-				{
-					FTexture2DRHIRef RHIRef = TextureResource->GetTexture2DRHI();
-					uint32 Stride = 0;
-					uint8* TextureBuffer = (uint8*)RHILockTexture2D(RHIRef, 0, RLM_WriteOnly, Stride, false);
-					FMemory::Memcpy(TextureBuffer, DataCopy, DataLen);
-					RHIUnlockTexture2D(RHIRef, 0, false);
-					FMemory::Free(DataCopy);
-				});
-				
-#endif
 
 			ReceivedImageDelegate.ExecuteIfBound(RemoteImage);
 		}

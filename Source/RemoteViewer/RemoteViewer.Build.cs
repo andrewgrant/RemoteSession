@@ -40,6 +40,7 @@ public class RemoteViewer : ModuleRules
 			new string[]
 			{
 				"CoreUObject",
+				"UnrealEd",
 				"Engine",
 				"Slate",
 				"SlateCore",
