@@ -12,6 +12,7 @@
 #if WITH_EDITOR
 #include "Editor.h"
 #endif
+#include "CoreGlobals.h"
 
 #define LOCTEXT_NAMESPACE "FRemoteViewerModule"
 
@@ -27,32 +28,59 @@ protected:
 	TSharedPtr<FRemoteViewerHost>		Host;
 	TSharedPtr<FRemoteViewerClient>		Client;
 
+	int32									DefaultPort;
+
 	// todo - icky
 	FRemoteViewerReceivedImageDelegate		ClientReceivedDelegate;
+
+	FDelegateHandle PostPieDelegate;
+	FDelegateHandle EndPieDelegate;
 
 public:
 	void StartupModule()
 	{
-#if REMOTEVIEWER_AUTOINIT_HOST
+		bool bAutoStartHost = true;
+		bool bSupportPIE = true;
+		DefaultPort = IRemoteViewerModule::kDefaultPort;
+
+		GConfig->GetBool(TEXT("RemoteViewer"), TEXT("bAutoStartHost"), bAutoStartHost, GEngineIni);
+		GConfig->GetBool(TEXT("RemoteViewer"), TEXT("bSupportPIE"), bSupportPIE, GEngineIni);
+		GConfig->GetInt(TEXT("RemoteViewer"), TEXT("HostPort"), DefaultPort, GEngineIni);
+
 		if (PLATFORM_DESKTOP)
 		{
-			InitHost();
-		}
-#endif
-
+			if (GIsEditor)
+			{
 #if WITH_EDITOR
-		if (GIsEditor)
-		{
-			FEditorDelegates::PostPIEStarted.AddRaw(this, &FRemoteViewerModule::OnPIEStarted);
-			FEditorDelegates::EndPIE.AddRaw(this, &FRemoteViewerModule::OnPIEEnded);
-		}
+				if (bSupportPIE)
+				{
+					PostPieDelegate = FEditorDelegates::PostPIEStarted.AddRaw(this, &FRemoteViewerModule::OnPIEStarted);
+					EndPieDelegate = FEditorDelegates::EndPIE.AddRaw(this, &FRemoteViewerModule::OnPIEEnded);
+				}
 #endif
+			}
+			else if (bAutoStartHost)
+			{
+				InitHost();
+			}
+		}
 	}
 
 	void ShutdownModule()
 	{
 		// This function may be called during shutdown to clean up your module.  For modules that support dynamic reloading,
 		// we call this function before unloading the module.
+#if WITH_EDITOR
+		if (PostPieDelegate.IsValid())
+		{
+			FEditorDelegates::PostPIEStarted.Remove(PostPieDelegate);
+		}
+
+		if (EndPieDelegate.IsValid())
+		{
+			FEditorDelegates::EndPIE.Remove(EndPieDelegate);
+		}
+#endif
 	}
 
 	virtual void InitClient(const TCHAR* RemoteAddress) override
@@ -74,16 +102,6 @@ public:
 		}
 	}
 
-	void OnPIEStarted(bool bSimulating)
-	{
-		InitHost();
-	}
-
-	void OnPIEEnded(bool bSimulating)
-	{
-		StopHost();
-	}
-
 	virtual bool IsClientConnected() const override
 	{
 		return Client.IsValid() && Client->IsConnected();
@@ -94,12 +112,7 @@ public:
 		Client = nullptr;
 	}
 
-	FRemoteViewerReceivedImageDelegate& GetClientImageReceivedDelegate() override
-	{
-		return ClientReceivedDelegate;
-	}
-
-	virtual void InitHost(const int16 Port=0) override
+	virtual void InitHost(const int16 Port = 0) override
 	{
 		if (Host.IsValid())
 		{
@@ -108,7 +121,7 @@ public:
 
 		TSharedPtr<FRemoteViewerHost> NewHost = MakeShareable(new FRemoteViewerHost());
 
-		int16 SelectedPort = Port ? Port : IRemoteViewerModule::kDefaultPort;
+		int16 SelectedPort = Port ? Port : (int16)DefaultPort;
 
 		if (NewHost->StartListening(SelectedPort))
 		{
@@ -135,6 +148,23 @@ public:
 	{
 		Host = nullptr;
 	}
+
+	void OnPIEStarted(bool bSimulating)
+	{
+		InitHost();
+	}
+
+	void OnPIEEnded(bool bSimulating)
+	{
+		StopHost();
+	}
+
+	FRemoteViewerReceivedImageDelegate& GetClientImageReceivedDelegate() override
+	{
+		return ClientReceivedDelegate;
+	}
+
+	
 
 	virtual TStatId GetStatId() const override
 	{
