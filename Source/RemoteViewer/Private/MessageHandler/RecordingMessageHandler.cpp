@@ -9,6 +9,7 @@
 #include "BufferArchive.h"
 #include "MemoryReader.h"
 #include "Engine/GameEngine.h"
+#include "Engine/GameViewportClient.h"
 
 PRAGMA_DISABLE_OPTIMIZATION
 

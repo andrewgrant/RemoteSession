@@ -40,7 +40,6 @@ public class RemoteViewer : ModuleRules
 			new string[]
 			{
 				"CoreUObject",
-				"UnrealEd",
 				"Engine",
 				"Slate",
 				"SlateCore",
@@ -52,8 +51,13 @@ public class RemoteViewer : ModuleRules
 				"ImageWrapper"
 			}
 		);
-		
-		
+
+		if (Target.bBuildEditor == true)
+		{
+			//reference the module "MyModule"
+			PrivateDependencyModuleNames.Add("UnrealEd");
+		}
+
 		DynamicallyLoadedModuleNames.AddRange(
 			new string[]
 			{

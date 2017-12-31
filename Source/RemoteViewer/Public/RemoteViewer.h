@@ -8,6 +8,8 @@
 #include "CoreMinimal.h"
 #include "ModuleManager.h"
 
+class UTexture2D;
+
 REMOTEVIEWER_API DECLARE_LOG_CATEGORY_EXTERN(LogRemoteViewer, Log, All);
 
 DECLARE_DELEGATE_OneParam(FRemoteViewerReceivedImageDelegate, UTexture2D*)
