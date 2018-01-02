@@ -28,6 +28,6 @@ public:
 
 protected:
 	
-	TSharedPtr<FBackChannelOSCConnection> OSCConnection;
+	TSharedPtr<FBackChannelOSCConnection, ESPMode::ThreadSafe> OSCConnection;
 
 };

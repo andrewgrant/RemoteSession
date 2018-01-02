@@ -10,6 +10,8 @@
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
 
+
+
 FRemoteViewerHost::FRemoteViewerHost()
 {
 	LastImageTime = 0;
@@ -36,6 +38,15 @@ void FRemoteViewerHost::SetConsumeInput(const bool bConsume)
 	}
 }
 
+ void FRemoteViewerHost::Close()
+{
+	 while (AsyncTasks.GetValue() > 0)
+	 {
+		 FPlatformProcess::SleepNoStats(0.001);
+	 }
+
+	 FRemoteViewerRole::Close();
+}
 
 bool FRemoteViewerHost::StartListening(const uint16 InPort)
 {
@@ -117,18 +128,27 @@ void FRemoteViewerHost::OnEndFrame()
 			FTexture2DRHIRef BackBuffer = RHICmdList.GetViewportBackBuffer(Viewport->GetViewportRHI());
 			RHICmdList.ReadSurfaceData(BackBuffer, Rect, LinearData, FReadSurfaceDataFlags());
 
-			// Hmm.
-			TArray<FColor> ImageData;
-			for (FLinearColor& LinearColor : LinearData)
-			{
-				FColor Color = LinearColor.ToFColor(false);
-				Color.A = 255;
-				ImageData.Add(Color);
-			}
+			AsyncTasks.Increment();
 
-			SendImageToClients(Size.X, Size.Y, ImageData);
-		}
-		);
+			AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [this, Size, LinearData]()
+			{
+				if (OSCConnection.IsValid())
+				{
+					// Hmm.
+					TArray<FColor> ImageData;
+					for (const FLinearColor& LinearColor : LinearData)
+					{
+						FColor Color = LinearColor.ToFColor(false);
+						Color.A = 255;
+						ImageData.Add(Color);
+					}
+
+					SendImageToClients(Size.X, Size.Y, ImageData);
+				}
+
+				AsyncTasks.Decrement();
+			});
+		});
 	}
 	else
 	{
@@ -144,16 +164,19 @@ void FRemoteViewerHost::OnEndFrame()
 
 			RHICmdList.ReadSurfaceData(TextureRef, Rect, LinearData, FReadSurfaceDataFlags());
 
-			// Hmm.
-			TArray<FColor> ImageData;
-			for (FLinearColor& LinearColor : LinearData)
+			AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [this, Size, LinearData]()
 			{
-				FColor Color = LinearColor.ToFColor(false);
-				Color.A = 255;
-				ImageData.Add(Color);
-			}
+				// Hmm.
+				TArray<FColor> ImageData;
+				for (const FLinearColor& LinearColor : LinearData)
+				{
+					FColor Color = LinearColor.ToFColor(false);
+					Color.A = 255;
+					ImageData.Add(Color);
+				}
 
-			SendImageToClients(Size.X, Size.Y, ImageData);
+				SendImageToClients(Size.X, Size.Y, ImageData);
+			});
 		});
 	}
 }

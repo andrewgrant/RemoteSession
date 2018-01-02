@@ -24,6 +24,7 @@ public:
 
 	void SetConsumeInput(const bool bConsume);
 
+	virtual void Close() override;
 
 	virtual void Tick(float DeltaTime) override;
 
@@ -42,6 +43,8 @@ protected:
 	TSharedPtr<FRecordingMessageHandler>	PlaybackMessageHandler;
 
 	FDelegateHandle		EndFrameDelegate;
+
+	FThreadSafeCounter	AsyncTasks;
 
 	double LastImageTime;
 	bool bScreenSharingEnabled;
