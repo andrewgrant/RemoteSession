@@ -8,6 +8,7 @@
 #include "Framework/Application/SlateApplication.h"	
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
+#include "Sockets.h"
 
 FRemoteViewerClient::FRemoteViewerClient(const TCHAR* InHostAddress)
 {
@@ -94,8 +95,15 @@ void FRemoteViewerClient::Tick(float DeltaTime)
 }
 
 
-bool FRemoteViewerClient::Connect()
+void FRemoteViewerClient::Connect()
 {
+	if (OSCConnection.IsValid())
+	{
+		UE_LOG(LogRemoteViewer, Display, TEXT("Closing connection to %s"), *OSCConnection->GetDescription());
+		Close();
+	}
+	
+
 	check(OSCConnection.IsValid() == false);
 
 	UE_LOG(LogRemoteViewer, Display, TEXT("Attempting to connect to %s.."), *HostAddress);
@@ -104,21 +112,32 @@ bool FRemoteViewerClient::Connect()
 	{
 		TSharedPtr<IBackChannelConnection> Connection = Transport->CreateConnection(IBackChannelTransport::TCP);
 
-		if (Connection.IsValid() && Connection->Connect(*HostAddress))
+		if (Connection.IsValid())
 		{
-			OSCConnection = MakeShareable(new FBackChannelOSCConnection(Connection.ToSharedRef()));
+			Connection->Connect(*HostAddress, 5, [this, Connection]() {
 
-			OSCConnection->GetDispatchMap().GetAddressHandler(TEXT("/Screen")).AddRaw(this, &FRemoteViewerClient::UpdateRemoteImage);
+				if (Connection->IsConnected())
+				{
+					int32 WantedSize = 4 * 1024 * 1024;
+					int32 ActualSize(0);
 
-			OSCConnection->SetMessageOptions(TEXT("/Screen"), 1);
+					Connection->GetSocket()->SetReceiveBufferSize(WantedSize, ActualSize);
 
-			OSCConnection->Start();
+					OSCConnection = MakeShareable(new FBackChannelOSCConnection(Connection.ToSharedRef()));
 
-			UE_LOG(LogRemoteViewer, Log, TEXT("Connected to host at %s"), *HostAddress);
+					OSCConnection->GetDispatchMap().GetAddressHandler(TEXT("/Screen")).AddRaw(this, &FRemoteViewerClient::UpdateRemoteImage);
+
+					OSCConnection->SetMessageOptions(TEXT("/Screen"), 1);
+
+					OSCConnection->Start();
+
+					UE_LOG(LogRemoteViewer, Log, TEXT("Connected to host at %s (ReceiveSize=%dkb)"), *HostAddress, ActualSize/1024);
+				}
+			});
 		}		
 	}
 
-	return OSCConnection.IsValid();
+	return;
 }
 
 void FRemoteViewerClient::RecordMessage(const TCHAR* MsgName, const TArray<uint8>& Data)

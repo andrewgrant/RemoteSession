@@ -32,6 +32,8 @@ public:
 		return OutputWriter != nullptr;
 	}
 
+	void SetPlaybackWindow(TWeakPtr<SWindow> InWindow, TWeakPtr<FSceneViewport> InViewport);
+
 public:
 
 	virtual bool OnKeyChar(const TCHAR Character, const bool IsRepeat) override;
@@ -42,6 +44,7 @@ public:
 	virtual bool OnTouchEnded(const FVector2D& Location, int32 TouchIndex, int32 ControllerId) override;
 
 	bool PlayMessage(const TCHAR* Message, const TArray<uint8>& Data);
+
 
 protected:
 
@@ -60,6 +63,8 @@ protected:
 
 	IRecordingMessageHandlerWriter*		OutputWriter;
 	bool								ConsumeInput;
+	TWeakPtr<SWindow>					PlaybackWindow;
+	TWeakPtr<FSceneViewport>			PlaybackViewport;
 
 	TMap<FString, FRecordedMessageDispatch> DispatchTable;
 };

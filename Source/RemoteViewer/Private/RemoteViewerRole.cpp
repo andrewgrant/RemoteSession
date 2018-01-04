@@ -17,7 +17,7 @@ void FRemoteViewerRole::Tick(float DeltaTime)
 		}
 		else
 		{
-			UE_LOG(LogRemoteViewer, Warning, TEXT("Connection %s has disconnected."), *OSCConnection->Description());
+			UE_LOG(LogRemoteViewer, Warning, TEXT("Connection %s has disconnected."), *OSCConnection->GetDescription());
 			OSCConnection = nullptr;
 		}
 	}

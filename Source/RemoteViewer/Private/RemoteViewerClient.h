@@ -32,7 +32,7 @@ public:
 
 protected:
 
-	bool			Connect();
+	void			Connect();
 	virtual void	RecordMessage(const TCHAR* MsgName, const TArray<uint8>& Data) override;
 
 	void			UpdateRemoteImage(FBackChannelOSCMessage& Message, FBackChannelOSCDispatch& Dispatch);

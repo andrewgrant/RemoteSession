@@ -10,12 +10,14 @@
 class FBackChannelListener;
 class IBackChannelConnection;
 class FRecordingMessageHandler;
+class FFrameGrabber;
+class IImageWrapper;
 
 class FRemoteViewerHost : public FRemoteViewerRole, public TSharedFromThis<FRemoteViewerHost>
 {
 public:
 
-	FRemoteViewerHost();
+	FRemoteViewerHost(int32 InQuality, int32 InFramerate);
 	~FRemoteViewerHost();
 
 	bool StartListening(const uint16 Port);
@@ -36,11 +38,11 @@ protected:
 
 	void		SendImageToClients(int32 Width, int32 Height, const TArray<FColor>& ImageData);
 
-	void		OnEndFrame();
-
 	TSharedPtr<IBackChannelListener> Listener;
 
 	TSharedPtr<FRecordingMessageHandler>	PlaybackMessageHandler;
+
+	TSharedPtr<FFrameGrabber>				FrameGrabber;
 
 	FDelegateHandle		EndFrameDelegate;
 
@@ -48,4 +50,7 @@ protected:
 
 	double LastImageTime;
 	bool bScreenSharingEnabled;
+
+	int32		Quality;
+	int32		Framerate;
 };

@@ -48,7 +48,9 @@ public class RemoteViewer : ModuleRules
 				"BackChannel",
 				"RenderCore",
 				"RHI",
-				"ImageWrapper"
+				"ImageWrapper",
+				"MovieSceneCapture",
+				"Sockets"
 			}
 		);
 

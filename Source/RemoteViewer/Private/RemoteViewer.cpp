@@ -16,7 +16,6 @@
 
 #define LOCTEXT_NAMESPACE "FRemoteViewerModule"
 
-
 #define REMOTEVIEWER_AUTOINIT_HOST 0 // !UE_BUILD_SHIPPING
 #define REMOTEVIEWER_TEST 0 //(1 && !UE_BUILD_SHIPPING)
 
@@ -28,38 +27,48 @@ protected:
 	TSharedPtr<FRemoteViewerHost>		Host;
 	TSharedPtr<FRemoteViewerClient>		Client;
 
-	int32									DefaultPort;
+	int32								DefaultPort;
+	int32								Quality;
+	int32								Framerate;
 
 	// todo - icky
 	FRemoteViewerReceivedImageDelegate		ClientReceivedDelegate;
 
+	bool bAutoHostWithPIE;
 	FDelegateHandle PostPieDelegate;
 	FDelegateHandle EndPieDelegate;
 
 public:
+
+	void SetAutoStartWithPIE(bool bEnable)
+	{
+		bAutoHostWithPIE = bEnable;
+	}
+
 	void StartupModule()
 	{
-		bool bAutoStartHost = true;
-		bool bSupportPIE = true;
+		bool bAutoHostWithGame = true;
 		DefaultPort = IRemoteViewerModule::kDefaultPort;
+		Quality = 85;
+		Framerate = 30;
+		bAutoHostWithPIE = true;
 
-		GConfig->GetBool(TEXT("RemoteViewer"), TEXT("bAutoStartHost"), bAutoStartHost, GEngineIni);
-		GConfig->GetBool(TEXT("RemoteViewer"), TEXT("bSupportPIE"), bSupportPIE, GEngineIni);
+		GConfig->GetBool(TEXT("RemoteViewer"), TEXT("bAutoHostWithGame"), bAutoHostWithGame, GEngineIni);
+		GConfig->GetBool(TEXT("RemoteViewer"), TEXT("bAutoHostWithPIE"), bAutoHostWithPIE, GEngineIni);
 		GConfig->GetInt(TEXT("RemoteViewer"), TEXT("HostPort"), DefaultPort, GEngineIni);
+		GConfig->GetInt(TEXT("RemoteViewer"), TEXT("Quality"), Quality, GEngineIni);
+		GConfig->GetInt(TEXT("RemoteViewer"), TEXT("Framerate"), Framerate, GEngineIni);
 
 		if (PLATFORM_DESKTOP)
 		{
 			if (GIsEditor)
 			{
 #if WITH_EDITOR
-				if (bSupportPIE)
-				{
-					PostPieDelegate = FEditorDelegates::PostPIEStarted.AddRaw(this, &FRemoteViewerModule::OnPIEStarted);
-					EndPieDelegate = FEditorDelegates::EndPIE.AddRaw(this, &FRemoteViewerModule::OnPIEEnded);
-				}
+				PostPieDelegate = FEditorDelegates::PostPIEStarted.AddRaw(this, &FRemoteViewerModule::OnPIEStarted);
+				EndPieDelegate = FEditorDelegates::EndPIE.AddRaw(this, &FRemoteViewerModule::OnPIEEnded);
 #endif
 			}
-			else if (bAutoStartHost)
+			else if (bAutoHostWithGame)
 			{
 				InitHost();
 			}
@@ -114,12 +123,13 @@ public:
 
 	virtual void InitHost(const int16 Port = 0) override
 	{
+#if !UE_BUILD_SHIPPING
 		if (Host.IsValid())
 		{
 			Host = nullptr;
 		}
 
-		TSharedPtr<FRemoteViewerHost> NewHost = MakeShareable(new FRemoteViewerHost());
+		TSharedPtr<FRemoteViewerHost> NewHost = MakeShareable(new FRemoteViewerHost(Quality, Framerate));
 
 		int16 SelectedPort = Port ? Port : (int16)DefaultPort;
 
@@ -132,6 +142,9 @@ public:
 		{
 			UE_LOG(LogRemoteViewer, Error, TEXT("Failed to start host listening on port %d"), SelectedPort);
 		}
+#else
+		UE_LOG(LogRemoteViewer, Log, TEXT("RemoteViewer is disabled. Shipping=1"), SelectedPort);
+#endif
 	}
 
 	virtual bool IsHostRunning() const override
@@ -151,11 +164,15 @@ public:
 
 	void OnPIEStarted(bool bSimulating)
 	{
-		InitHost();
+		if (bAutoHostWithPIE)
+		{
+			InitHost();
+		}
 	}
 
 	void OnPIEEnded(bool bSimulating)
 	{
+		// always stop, incase it was started via the console
 		StopHost();
 	}
 
@@ -217,5 +234,45 @@ public:
 };
 	
 IMPLEMENT_MODULE(FRemoteViewerModule, RemoteViewer)
+
+FAutoConsoleCommand GRemoteHostCommand(
+	TEXT("remote.host"),
+	TEXT("Starts a remote viewer host"),
+	FConsoleCommandDelegate::CreateStatic(
+		[]()
+	{
+		if (FRemoteViewerModule* Viewer = FModuleManager::LoadModulePtr<FRemoteViewerModule>("RemoteViewer"))
+		{
+			Viewer->InitHost();
+		}
+	})
+);
+
+FAutoConsoleCommand GRemoteDisconnectCommand(
+	TEXT("remote.disconnect"),
+	TEXT("Disconnect remote viewer"),
+	FConsoleCommandDelegate::CreateStatic(
+		[]()
+	{
+		if (FRemoteViewerModule* Viewer = FModuleManager::LoadModulePtr<FRemoteViewerModule>("RemoteViewer"))
+		{
+			Viewer->StopClient();
+			Viewer->StopHost();
+		}
+	})
+);
+
+FAutoConsoleCommand GRemoteAutoPIECommand(
+	TEXT("remote.autopie"),
+	TEXT("enables remote with pie"),
+	FConsoleCommandDelegate::CreateStatic(
+		[]()
+{
+	if (FRemoteViewerModule* Viewer = FModuleManager::LoadModulePtr<FRemoteViewerModule>("RemoteViewer"))
+	{
+		Viewer->SetAutoStartWithPIE(true);
+	}
+})
+);
 
 #undef LOCTEXT_NAMESPACE

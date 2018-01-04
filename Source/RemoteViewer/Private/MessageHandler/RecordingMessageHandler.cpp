@@ -123,6 +123,12 @@ void FRecordingMessageHandler::SetConsumeInput(bool bConsume)
 	ConsumeInput = bConsume;
 }
 
+void FRecordingMessageHandler::SetPlaybackWindow(TWeakPtr<SWindow> InWindow, TWeakPtr<FSceneViewport> InViewport)
+{
+	PlaybackWindow = InWindow;
+	PlaybackViewport = InViewport;
+}
+
 FVector2D FRecordingMessageHandler::ConvertToNormalizedScreenLocation(const FVector2D& Location)
 {
 	const FVector2D ViewportSize = FVector2D(GEngine->GameViewport->Viewport->GetSizeXY());
@@ -134,15 +140,12 @@ FVector2D FRecordingMessageHandler::ConvertFromNormalizedScreenLocation(const FV
 {
 	FVector2D OutVector = ScreenLocation;
 
-	if (UGameEngine* GameEngine = Cast<UGameEngine>(GEngine))
+	TSharedPtr<SWindow> GameWindow = PlaybackWindow.Pin();
+	if (GameWindow.IsValid())
 	{
-		TSharedPtr<SWindow> GameWindow = GameEngine->GameViewportWindow.Pin();
-		if (GameWindow.IsValid())
-		{
-			FVector2D WindowOrigin = GameWindow->GetPositionInScreen();
-			FVector2D WindowSize = GameWindow->GetSizeInScreen();
-			OutVector = WindowOrigin + (ScreenLocation * WindowSize);
-		}		
+		FVector2D WindowOrigin = GameWindow->GetPositionInScreen();
+		FVector2D WindowSize = GameWindow->GetSizeInScreen();
+		OutVector = WindowOrigin + (ScreenLocation * WindowSize);
 	}
 
 	return OutVector;
@@ -247,6 +250,8 @@ bool FRecordingMessageHandler::OnTouchStarted(const TSharedPtr< FGenericWindow >
 		return true;
 	}
 
+	
+
 	return FProxyMessageHandler::OnTouchStarted(Window, Location, TouchIndex, ControllerId);
 }
 
@@ -255,7 +260,14 @@ void FRecordingMessageHandler::PlayOnTouchStarted(FArchive& Ar)
 	ThreeParamMsg<FVector2D, int32, int32 > Msg(Ar);
 	FVector2D ScreenLocation = ConvertFromNormalizedScreenLocation(Msg.Param1);
 
-	OnTouchStarted(TSharedPtr<FGenericWindow>(), ScreenLocation, Msg.Param2, Msg.Param3);
+	TSharedPtr<FGenericWindow> Window;
+
+	if (PlaybackWindow.IsValid())
+	{
+		Window = PlaybackWindow.Pin()->GetNativeWindow();
+	}
+
+	OnTouchStarted(Window, ScreenLocation, Msg.Param2, Msg.Param3);
 }
 
 bool FRecordingMessageHandler::OnTouchMoved(const FVector2D& Location, int32 TouchIndex, int32 ControllerId)
