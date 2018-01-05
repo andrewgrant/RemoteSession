@@ -8,6 +8,9 @@
 #include "CoreMinimal.h"
 #include "ProxyMessageHandler.h"
 
+class SWindow;
+class FSceneViewport;
+
 class IRecordingMessageHandlerWriter
 {
 public:
