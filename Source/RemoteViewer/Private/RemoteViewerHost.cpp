@@ -10,6 +10,10 @@
 #include "Widgets/SViewport.h"
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
+#include "Utils/BackChannelThreadedConnection.h"
+
+
+PRAGMA_DISABLE_OPTIMIZATION
 
 static int32 FramerateMasterSetting = 0;
 static FAutoConsoleVariableRef CVarFramerateOverride(
@@ -43,6 +47,14 @@ FRemoteViewerHost::FRemoteViewerHost(int32 InQuality, int32 InFramerate)
 
 FRemoteViewerHost::~FRemoteViewerHost()
 {
+	// close this manually to force the thread to stop before things start to be 
+	// destroyed
+	if (Listener.IsValid())
+	{
+		Listener->Close();
+	}
+
+	Close();
 }
 
 void FRemoteViewerHost::SetScreenSharing(const bool bEnabled)
@@ -83,14 +95,13 @@ bool FRemoteViewerHost::StartListening(const uint16 InPort)
 
 	if (IBackChannelTransport* Transport = IBackChannelTransport::Get())
 	{
-		Listener = Transport->CreateListener(IBackChannelTransport::TCP);
+		TSharedPtr<IBackChannelConnection> ListenerConnection = Transport->CreateConnection(IBackChannelTransport::TCP);
 
-		Listener->GetOnConnectionRequestDelegate().BindLambda([this](auto NewConnection)->bool
-		{
-			return OnIncomingConnection(NewConnection);
-		});
+		ListenerConnection->Listen(InPort);
 
-		Listener->Listen(InPort);
+		Listener = MakeShareable(new FBackChannelThreadedConnection);
+
+		Listener->Start(ListenerConnection.ToSharedRef(), AsShared());
 	}
 
 	if (PlaybackMessageHandler.IsValid() == false)
@@ -103,14 +114,21 @@ bool FRemoteViewerHost::StartListening(const uint16 InPort)
 	return Listener.IsValid();
 }
 
+bool FRemoteViewerHost::OnIncomingConnection(TSharedRef<IBackChannelConnection>& NewConnection)
+{
+	AsyncTask(ENamedThreads::GameThread, [this, NewConnection]() {
+		ProcessIncomingConnection(NewConnection);
+	});
 
-bool FRemoteViewerHost::OnIncomingConnection(TSharedRef<IBackChannelConnection> NewConnection)
+	return true;
+}
+
+
+bool FRemoteViewerHost::ProcessIncomingConnection(TSharedRef<IBackChannelConnection> NewConnection)
 {
 	Close();
 
 	OSCConnection = MakeShareable(new FBackChannelOSCConnection(NewConnection));
-
-	TWeakPtr<FRemoteViewerHost> WeakThis(AsShared());
 
 	OSCConnection->GetDispatchMap().GetAddressHandler(TEXT("/MessageHandler/")).AddRaw(this, &FRemoteViewerHost::OnRemoteMessage);
 
@@ -127,12 +145,15 @@ bool FRemoteViewerHost::OnIncomingConnection(TSharedRef<IBackChannelConnection> 
 			if (Context.WorldType == EWorldType::PIE)
 			{
 				FSlatePlayInEditorInfo* SlatePlayInEditorSession = GEditor->SlatePlayInEditorMap.Find(Context.ContextHandle);
-				if (SlatePlayInEditorSession && SlatePlayInEditorSession->SlatePlayInEditorWindowViewport.IsValid())
+				if (SlatePlayInEditorSession)
 				{
-					SceneViewport = SlatePlayInEditorSession->SlatePlayInEditorWindowViewport;
-				}
+					if (SlatePlayInEditorSession->SlatePlayInEditorWindowViewport.IsValid())
+					{
+						SceneViewport = SlatePlayInEditorSession->SlatePlayInEditorWindowViewport;
+					}
 
-				InputWindow = SlatePlayInEditorSession->SlatePlayInEditorWindow;
+					InputWindow = SlatePlayInEditorSession->SlatePlayInEditorWindow;
+				}
 			}
 		}
 		
@@ -169,6 +190,14 @@ void FRemoteViewerHost::OnRemoteMessage(FBackChannelOSCMessage& Message, FBackCh
 
 void FRemoteViewerHost::Tick(float DeltaTime)
 {
+	// non-threaded listener
+	/*if (IsConnected() == false)
+	{
+		Listener->WaitForConnection(0, [this](TSharedRef<IBackChannelConnection> Connection) {
+			return ProcessIncomingConnection(Connection);
+		});
+	}*/
+
 	if (FrameGrabber.IsValid() && bScreenSharingEnabled)
 	{
 		FrameGrabber->CaptureThisFrame(FFramePayloadPtr());
@@ -233,3 +262,5 @@ void FRemoteViewerHost::SendImageToClients(int32 Width, int32 Height, const TArr
 		}
 	}
 }
+
+PRAGMA_ENABLE_OPTIMIZATION

@@ -143,7 +143,7 @@ public:
 			UE_LOG(LogRemoteViewer, Error, TEXT("Failed to start host listening on port %d"), SelectedPort);
 		}
 #else
-		UE_LOG(LogRemoteViewer, Log, TEXT("RemoteViewer is disabled. Shipping=1"), SelectedPort);
+		UE_LOG(LogRemoteViewer, Log, TEXT("RemoteViewer is disabled. Shipping=1"));
 #endif
 	}
 

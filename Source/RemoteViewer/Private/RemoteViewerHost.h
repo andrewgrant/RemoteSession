@@ -6,14 +6,16 @@
 #pragma once
 
 #include "RemoteViewerRole.h"
+#include "BackChannel/Utils/BackChannelThreadedConnection.h"
 
+class FBackChannelThreadedConnection;
 class FBackChannelListener;
 class IBackChannelConnection;
 class FRecordingMessageHandler;
 class FFrameGrabber;
 class IImageWrapper;
 
-class FRemoteViewerHost : public FRemoteViewerRole, public TSharedFromThis<FRemoteViewerHost>
+class FRemoteViewerHost : public FRemoteViewerRole, public TSharedFromThis<FRemoteViewerHost>, public IBackChannelThreadedConnectionDelegate
 {
 public:
 
@@ -32,13 +34,14 @@ public:
 
 protected:
 
-	bool		OnIncomingConnection(TSharedRef<IBackChannelConnection> NewConnection);
+	virtual bool		OnIncomingConnection(TSharedRef<IBackChannelConnection>& NewConnection) override;
+	bool				ProcessIncomingConnection(TSharedRef<IBackChannelConnection> NewConnection);
 		
 	void		OnRemoteMessage(FBackChannelOSCMessage& Message, FBackChannelOSCDispatch& Dispatch);
 
 	void		SendImageToClients(int32 Width, int32 Height, const TArray<FColor>& ImageData);
 
-	TSharedPtr<IBackChannelListener> Listener;
+	TSharedPtr<FBackChannelThreadedConnection> Listener;
 
 	TSharedPtr<FRecordingMessageHandler>	PlaybackMessageHandler;
 
