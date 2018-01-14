@@ -1,7 +1,7 @@
 // Copyright 2017 Andrew Grant
-// This file is part of RemoteViewer and is freely licensed for commercial and 
+// This file is part of RemoteSession and is freely licensed for commercial and 
 // non-commercial use under an MIT license
-// See https://github.com/andrewgrant/RemoteViewer for more info
+// See https://github.com/andrewgrant/RemoteSession for more info
 
 #pragma once
 
@@ -46,7 +46,7 @@ public:
 public:
 	/** Server implementation */
 
-	/** Starts a RemoteViewer server that listens for clients on the provided port */
+	/** Starts a RemoteSession server that listens for clients on the provided port */
 	virtual void InitHost(const int16 Port=0) = 0;
 
 	/** Returns true/false based on the running state of the host server */

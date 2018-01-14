@@ -1,7 +1,7 @@
 // Copyright 2017 Andrew Grant
-// This file is part of RemoteViewer and is freely licensed for commercial and 
+// This file is part of RemoteSession and is freely licensed for commercial and 
 // non-commercial use under an MIT license
-// See https://github.com/andrewgrant/RemoteViewer for more info
+// See https://github.com/andrewgrant/RemoteSession for more info
 
 #include "ProxyMessageHandler.h"
 
