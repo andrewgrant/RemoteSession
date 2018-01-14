@@ -4,12 +4,13 @@
 // See https://github.com/andrewgrant/RemoteViewer for more info
 
 #include "RecordingMessageHandler.h"
-#include "RemoteViewer.h"
+#include "RemoteSession.h"
 #include "BackChannel/Protocol/OSC/BackChannelOSC.h"
 #include "BufferArchive.h"
 #include "MemoryReader.h"
 #include "Engine/GameEngine.h"
 #include "Engine/GameViewportClient.h"
+#include "Async.h"
 
 PRAGMA_DISABLE_OPTIMIZATION
 
@@ -154,17 +155,22 @@ FVector2D FRecordingMessageHandler::ConvertFromNormalizedScreenLocation(const FV
 
 bool FRecordingMessageHandler::PlayMessage(const TCHAR* Message, const TArray<uint8>& Data)
 {
-	FMemoryReader Ar(Data);	
-
 	FRecordedMessageDispatch* Dispatch = DispatchTable.Find(Message);
 
 	if (Dispatch != nullptr)
 	{
-		Dispatch->ExecuteIfBound(Ar);
+		// todo - can we steal this data in a more elegant way? :)
+		TSharedPtr<TArray<uint8>, ESPMode::ThreadSafe> DataCopy = MakeShareable(new TArray<uint8>(MoveTemp(*(TArray<uint8>*)&Data)));
+
+		AsyncTask(ENamedThreads::GameThread, [Dispatch, DataCopy] {
+			FMemoryReader Ar(*DataCopy);
+			Dispatch->ExecuteIfBound(Ar);
+		});
+		
 	}
 	else
 	{
-		UE_LOG(LogRemoteViewer, Warning, TEXT("No Playback Handler registered for message %s"), Message);
+		UE_LOG(LogRemoteSession, Warning, TEXT("No Playback Handler registered for message %s"), Message);
 	}
 
 	return true;

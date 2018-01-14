@@ -2,11 +2,11 @@
 	"FileVersion": 3,
 	"Version": 1,
 	"VersionName": "1.0",
-	"FriendlyName": "RemoteViewer",
+	"FriendlyName": "RemoteSession",
 	"Description": "Remote Viewing",
 	"Category": "Other",
 	"CreatedBy": "Andrew Grant",
-	"CreatedByURL": "https://github.com/andrewgrant/RemoteViewer",
+	"CreatedByURL": "https://github.com/andrewgrant/RemoteSession",
 	"DocsURL": "",
 	"MarketplaceURL": "",
 	"SupportURL": "",
@@ -17,7 +17,7 @@
 
 	"Modules": [
 		{
-			"Name": "RemoteViewer",
+			"Name": "RemoteSession",
 			"Type": "RuntimeNoCommandlet",
 			"LoadingPhase": "Default"
 		}

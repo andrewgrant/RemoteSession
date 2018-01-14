@@ -20,7 +20,7 @@ public:
 
 DECLARE_DELEGATE_OneParam(FRecordedMessageDispatch, FArchive&);
 
-class REMOTEVIEWER_API FRecordingMessageHandler : public FProxyMessageHandler, public TSharedFromThis<FRecordingMessageHandler>
+class FRecordingMessageHandler : public FProxyMessageHandler, public TSharedFromThis<FRecordingMessageHandler>
 {
 public:
 

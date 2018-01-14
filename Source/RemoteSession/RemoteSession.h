@@ -7,15 +7,12 @@
 
 #include "CoreMinimal.h"
 #include "ModuleManager.h"
-
-class UTexture2D;
-
-REMOTEVIEWER_API DECLARE_LOG_CATEGORY_EXTERN(LogRemoteViewer, Log, All);
-
-DECLARE_DELEGATE_OneParam(FRemoteViewerReceivedImageDelegate, UTexture2D*)
+#include "RemoteSessionRole.h"
 
 
-class IRemoteViewerModule : public IModuleInterface
+REMOTESESSION_API DECLARE_LOG_CATEGORY_EXTERN(LogRemoteSession, Log, All);
+
+class REMOTESESSION_API IRemoteSessionModule : public IModuleInterface
 {
 public:
 
@@ -43,8 +40,8 @@ public:
 	/** Stops the client. After this InitClient() must be called if a new connection is desired */
 	virtual void StopClient() = 0;
 
-	/** Returns the client image delegate which can be bound to */
-	virtual FRemoteViewerReceivedImageDelegate& GetClientImageReceivedDelegate() = 0;
+	/** Returns a reference to the client role (if any) */
+	virtual TSharedPtr<IRemoteSessionRole>		GetClient() const = 0;
 
 public:
 	/** Server implementation */
@@ -60,5 +57,8 @@ public:
 
 	/** Stops the server, after this InitHost() must be called if a new connection is desired */
 	virtual void StopHost() = 0;
+
+	/** Returns a reference to the server role (if any) */
+	virtual TSharedPtr<IRemoteSessionRole>		GetHost() const = 0;
 
 };

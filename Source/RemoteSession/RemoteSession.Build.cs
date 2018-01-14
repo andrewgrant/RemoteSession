@@ -1,19 +1,19 @@
 // Copyright 2017 Andrew Grant
-// This file is part of RemoteViewer and is freely licensed for commercial and 
+// This file is part of RemoteSession and is freely licensed for commercial and 
 // non-commercial use under an MIT license
-// See https://github.com/andrewgrant/RemoteViewer for more info
+// See https://github.com/andrewgrant/RemoteSession for more info
 
 using UnrealBuildTool;
 
-public class RemoteViewer : ModuleRules
+public class RemoteSession : ModuleRules
 {
-	public RemoteViewer(ReadOnlyTargetRules Target) : base(Target)
+	public RemoteSession(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 		
 		PublicIncludePaths.AddRange(
 			new string[] {
-				"RemoteViewer/Public"
+				".."
 				// ... add public include paths required here ...
 			}
 		);
@@ -21,7 +21,8 @@ public class RemoteViewer : ModuleRules
 		
 		PrivateIncludePaths.AddRange(
 			new string[] {
-				"RemoteViewer/Private",
+				"RemoteSession/Private",
+				"RemoteSession"
 				// ... add other private include paths required here ...
 			}
 		);

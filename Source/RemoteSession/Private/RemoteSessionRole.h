@@ -5,18 +5,22 @@
 
 #pragma once
 
+#include "RemoteSession/RemoteSessionRole.h"
 #include "BackChannel/Protocol/OSC/BackChannelOSCConnection.h"
 #include "Tickable.h"
 
-class FRemoteViewerRole
+
+
+class FRemoteSessionRole : public IRemoteSessionRole, FRunnable
 {
 public:
 
-	virtual ~FRemoteViewerRole() {}
+	virtual ~FRemoteSessionRole();
 
 	virtual void Close()
 	{
 		OSCConnection = nullptr;
+		Connection = nullptr;
 	}
 
 	virtual bool IsConnected() const
@@ -26,8 +30,26 @@ public:
 
 	virtual void Tick( float DeltaTime );
 
+	virtual TSharedPtr<IRemoteSessionChannel> GetChannel(const FString& Type) override;
+
+	void			SetReceiveInBackground(bool bValue);
+
+protected:
+
+	void			StartBackgroundThread();
+	void			StopBackgroundThread();
+
+	uint32			Run();
+
 protected:
 	
+	TSharedPtr<IBackChannelConnection>	Connection;
+
 	TSharedPtr<FBackChannelOSCConnection, ESPMode::ThreadSafe> OSCConnection;
+
+	TArray<TSharedPtr<IRemoteSessionChannel>> Channels;
+	
+	FThreadSafeBool			ThreadExitRequested;
+	FThreadSafeBool			ThreadRunning;
 
 };
