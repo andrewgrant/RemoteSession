@@ -17,6 +17,13 @@ FRemoteSessionRole::~FRemoteSessionRole()
 	Close();
 }
 
+void FRemoteSessionRole::Close()
+{
+	Channels.Empty();
+	OSCConnection = nullptr;
+	Connection = nullptr;
+}
+
 void FRemoteSessionRole::Tick(float DeltaTime)
 {
 	if (OSCConnection.IsValid())

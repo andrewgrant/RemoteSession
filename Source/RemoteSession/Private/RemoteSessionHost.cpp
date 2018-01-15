@@ -109,8 +109,8 @@ bool FRemoteSessionHost::ProcessIncomingConnection(TSharedRef<IBackChannelConnec
 	if (SceneViewport.IsValid())
 	{
 		TSharedPtr<FRemoteSessionFrameBufferChannel> FramebufferChannel = MakeShareable(new FRemoteSessionFrameBufferChannel(ERemoteSessionChannelMode::Send, OSCConnection));
-		FramebufferChannel->CaptureViewport(SceneViewport.ToSharedRef());
-		FramebufferChannel->SetQuality(Quality, Framerate);
+		FramebufferChannel->SetCaptureViewport(SceneViewport.ToSharedRef());
+		FramebufferChannel->SetCaptureQuality(Quality, Framerate);
 		Channels.Add(FramebufferChannel);
 	}
 
@@ -129,12 +129,6 @@ void FRemoteSessionHost::Tick(float DeltaTime)
 			return ProcessIncomingConnection(Connection);
 		});
 	}
-
-	for (auto& Channel : Channels)
-	{
-		Channel->Tick(DeltaTime);
-	}
-
 	
 	FRemoteSessionRole::Tick(DeltaTime);
 }

@@ -13,22 +13,8 @@
 #include "Sockets.h"
 #include "RemoteSession.h"
 
-bool InGameThread()
-{
-	if (GIsGameThreadIdInitialized)
-	{
-		return FPlatformTLS::GetCurrentThreadId() == GGameThreadId;
-	}
-	else
-	{
-		return true;
-	}
-}
 
-#define RV_CLIENT_THREADED 0
-
-DECLARE_CYCLE_STAT(TEXT("RVClientTick"), STAT_RVClientTick, STATGROUP_Game);
-
+DECLARE_CYCLE_STAT(TEXT("RSClientTick"), STAT_RDClientTick, STATGROUP_Game);
 
 FRemoteSessionClient::FRemoteSessionClient(const TCHAR* InHostAddress)
 {
@@ -53,7 +39,7 @@ FRemoteSessionClient::~FRemoteSessionClient()
 
 void FRemoteSessionClient::Tick(float DeltaTime)
 {
-	SCOPE_CYCLE_COUNTER(STAT_RVClientTick);
+	SCOPE_CYCLE_COUNTER(STAT_RDClientTick);
 
 	if (IsConnected() == false)
 	{

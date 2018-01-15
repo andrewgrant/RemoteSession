@@ -17,11 +17,7 @@ public:
 
 	virtual ~FRemoteSessionRole();
 
-	virtual void Close()
-	{
-		OSCConnection = nullptr;
-		Connection = nullptr;
-	}
+	virtual void Close();
 
 	virtual bool IsConnected() const
 	{

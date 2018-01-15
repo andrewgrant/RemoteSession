@@ -58,7 +58,7 @@ FRemoteSessionInputChannel::~FRemoteSessionInputChannel()
 
 FString FRemoteSessionInputChannel::StaticType()
 {
-	return TEXT("rv.input");
+	return TEXT("rs.input");
 }
 
 
@@ -69,7 +69,7 @@ void FRemoteSessionInputChannel::SetPlaybackWindow(TWeakPtr<SWindow> InWindow, T
 
 void FRemoteSessionInputChannel::Tick(const float InDeltaTime)
 {
-	
+	// everything happens via messaging.
 }
 
 void FRemoteSessionInputChannel::RecordMessage(const TCHAR* MsgName, const TArray<uint8>& Data)

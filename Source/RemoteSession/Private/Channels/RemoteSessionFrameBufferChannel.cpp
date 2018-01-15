@@ -14,7 +14,10 @@
 #include "Engine/Texture2D.h"
 #include "ModuleManager.h"
 
-DECLARE_CYCLE_STAT(TEXT("RVImageDecompression"), STAT_ImageDecompression, STATGROUP_Game);
+DECLARE_CYCLE_STAT(TEXT("RSFrameBufferCap"), STAT_FrameBufferCapture, STATGROUP_Game);
+DECLARE_CYCLE_STAT(TEXT("RSTextureUpdate"), STAT_TextureUpdate, STATGROUP_Game);
+DECLARE_CYCLE_STAT(TEXT("RSImageCompression"), STAT_ImageCompression, STATGROUP_Game);
+DECLARE_CYCLE_STAT(TEXT("RSImageDecompression"), STAT_ImageDecompression, STATGROUP_Game);
 
 static int32 FramerateMasterSetting = 0;
 static FAutoConsoleVariableRef CVarFramerateOverride(
@@ -32,23 +35,27 @@ static FAutoConsoleVariableRef CVarQualityOverride(
 FRemoteSessionFrameBufferChannel::FRemoteSessionFrameBufferChannel(ERemoteSessionChannelMode InRole, TSharedPtr<FBackChannelOSCConnection, ESPMode::ThreadSafe> InConnection)
 	: IRemoteSessionChannel(InRole, InConnection)
 {
-	LastImageTime = 0.0;
+	LastSentImageTime = 0.0;
 	Connection = InConnection;
-	RemoteImage[0] = nullptr;
-	RemoteImage[1] = nullptr;
-	RemoteImageIndex = 0;
-	RemoteImageWidth = RemoteImageHeight = 0;
+	IncomingImage[0] = nullptr;
+	IncomingImage[1] = nullptr;
+	CurrentImageIndex = 0;
 	Role = InRole;
 
 	if (Role == ERemoteSessionChannelMode::Receive)
 	{
-		Connection->GetDispatchMap().GetAddressHandler(TEXT("/Screen")).AddRaw(this, &FRemoteSessionFrameBufferChannel::ReceiveRemoteImage);
-		Connection->SetMessageOptions(TEXT("/Screen"), 1);
+		InConnection->GetDispatchMap().GetAddressHandler(TEXT("/Screen")).AddRaw(this, &FRemoteSessionFrameBufferChannel::ReceiveHostImage);
+		InConnection->SetMessageOptions(TEXT("/Screen"), 1);
 	}
 }
 
 FRemoteSessionFrameBufferChannel::~FRemoteSessionFrameBufferChannel()
 {
+	while (NumAsyncTasks.GetValue() > 0)
+	{
+		FPlatformProcess::SleepNoStats(0);
+	}
+
 	if (FrameGrabber.IsValid())
 	{
 		FrameGrabber->StopCapturingFrames();
@@ -57,20 +64,20 @@ FRemoteSessionFrameBufferChannel::~FRemoteSessionFrameBufferChannel()
 
 	for (int32 i = 0; i < 2; i++)
 	{
-		if (RemoteImage[i])
+		if (IncomingImage[i])
 		{
-			RemoteImage[i]->RemoveFromRoot();
-			RemoteImage[i] = nullptr;
+			IncomingImage[i]->RemoveFromRoot();
+			IncomingImage[i] = nullptr;
 		}
 	}
 }
 
 FString FRemoteSessionFrameBufferChannel::StaticType()
 {
-	return TEXT("rv.framebuffer");
+	return TEXT("rs.framebuffer");
 }
 
-void FRemoteSessionFrameBufferChannel::SetQuality(int32 InQuality, int32 InFramerate)
+void FRemoteSessionFrameBufferChannel::SetCaptureQuality(int32 InQuality, int32 InFramerate)
 {
 	// Set our framerate and quality cvars, if the user hasn't modified them
 	if (FramerateMasterSetting == 0)
@@ -84,28 +91,30 @@ void FRemoteSessionFrameBufferChannel::SetQuality(int32 InQuality, int32 InFrame
 	}
 }
 
-void FRemoteSessionFrameBufferChannel::CaptureViewport(TSharedRef<FSceneViewport> Viewport)
+void FRemoteSessionFrameBufferChannel::SetCaptureViewport(TSharedRef<FSceneViewport> Viewport)
 {
 	FrameGrabber = MakeShareable(new FFrameGrabber(Viewport, Viewport->GetSize()));
 	FrameGrabber->StartCapturingFrames();
 }
 
-UTexture2D* FRemoteSessionFrameBufferChannel::GetRemoteImage() const
+UTexture2D* FRemoteSessionFrameBufferChannel::GetHostScreen() const
 {
-	return RemoteImage[RemoteImageIndex];
+	return IncomingImage[CurrentImageIndex];
 }
 
 void FRemoteSessionFrameBufferChannel::Tick(const float InDeltaTime)
 {
 	if (FrameGrabber.IsValid())
 	{
+		SCOPE_CYCLE_COUNTER(STAT_FrameBufferCapture);
+
 		FrameGrabber->CaptureThisFrame(FFramePayloadPtr());
 
 		TArray<FCapturedFrameData> Frames = FrameGrabber->GetCapturedFrames();
 
 		if (Frames.Num())
 		{
-			const double ElapsedImageTimeMS = (FPlatformTime::Seconds() - LastImageTime) * 1000;
+			const double ElapsedImageTimeMS = (FPlatformTime::Seconds() - LastSentImageTime) * 1000;
 			const int32 DesiredFrameTimeMS = 1000 / FramerateMasterSetting;
 
 			if (ElapsedImageTimeMS >= DesiredFrameTimeMS)
@@ -116,8 +125,12 @@ void FRemoteSessionFrameBufferChannel::Tick(const float InDeltaTime)
 
 				FIntPoint Size = LastFrame.BufferSize;
 
+				NumAsyncTasks.Increment();
+
 				AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [this, Size, ColorData]()
 				{
+					SCOPE_CYCLE_COUNTER(STAT_ImageCompression);
+
 					for (FColor& Color : *ColorData)
 					{
 						Color.A = 255;
@@ -126,43 +139,48 @@ void FRemoteSessionFrameBufferChannel::Tick(const float InDeltaTime)
 					SendImageToClients(Size.X, Size.Y, *ColorData);
 
 					delete ColorData;
+
+					NumAsyncTasks.Decrement();
 				});
 
-				LastImageTime = FPlatformTime::Seconds();
+				LastSentImageTime = FPlatformTime::Seconds();
 			}
 		}
 	}
 	
 	if (Role == ERemoteSessionChannelMode::Receive)
 	{
+		SCOPE_CYCLE_COUNTER(STAT_TextureUpdate);
+
 		TSharedPtr<FQueuedFBImage> QueuedImage;
 
 		{
+			// Check to see if there are any queued images. We just care about the last
 			FScopeLock ImageLock(&ImageMutex);
-
-			if (QueuedImages.Num())
+			if (ReceivedImageQueue.Num())
 			{
-				QueuedImage = QueuedImages.Last();
-				QueuedImages.Empty();
+				QueuedImage = ReceivedImageQueue.Last();
+				ReceivedImageQueue.Empty();
 			}
 		}
 
+		// If an image was waiting...
 		if (QueuedImage.IsValid())
 		{
-			int32 NextImage = RemoteImageIndex == 0 ? 1 : 0;
+			int32 NextImage = CurrentImageIndex == 0 ? 1 : 0;
 
-			if (RemoteImage[NextImage] == nullptr || QueuedImage->Width != RemoteImage[NextImage]->GetSizeX() || QueuedImage->Height != RemoteImage[NextImage]->GetSizeY())
+			// create a texture if we don't have a suitable one
+			if (IncomingImage[NextImage] == nullptr || QueuedImage->Width != IncomingImage[NextImage]->GetSizeX() || QueuedImage->Height != IncomingImage[NextImage]->GetSizeY())
 			{
-				CreateRemoteImage(NextImage, QueuedImage->Width, QueuedImage->Height);
+				CreateTexture(NextImage, QueuedImage->Width, QueuedImage->Height);
 			}
 
-
+			// Update it on the render thread. There shouldn't (...) be any harm in GT code using it from this point
 			FUpdateTextureRegion2D* Region = new FUpdateTextureRegion2D(0, 0, 0, 0, QueuedImage->Width, QueuedImage->Height);
-
 			TArray<uint8>* TextureData = new TArray<uint8>(MoveTemp(QueuedImage->ImageData));
 
-			RemoteImage[NextImage]->UpdateTextureRegions(0, 1, Region, 4 * QueuedImage->Width, 8, TextureData->GetData(), [this, NextImage](auto InTextureData, auto InRegions) {
-				RemoteImageIndex = NextImage;
+			IncomingImage[NextImage]->UpdateTextureRegions(0, 1, Region, 4 * QueuedImage->Width, 8, TextureData->GetData(), [this, NextImage](auto InTextureData, auto InRegions) {
+				CurrentImageIndex = NextImage;
 				delete InTextureData;
 				delete InRegions;
 			});
@@ -174,8 +192,8 @@ void FRemoteSessionFrameBufferChannel::SendImageToClients(int32 Width, int32 Hei
 {
 	static bool SkipImages = FParse::Param(FCommandLine::Get(), TEXT("remote.noimage"));
 
-	// Can be released on the main thread at anytime
-	TSharedPtr<FBackChannelOSCConnection, ESPMode::ThreadSafe> LocalConnection = Connection;
+	// Can be released on the main thread at anytime so hold onto it
+	TSharedPtr<FBackChannelOSCConnection, ESPMode::ThreadSafe> LocalConnection = Connection.Pin();
 
 	if (LocalConnection.IsValid() && SkipImages == false)
 	{
@@ -199,10 +217,8 @@ void FRemoteSessionFrameBufferChannel::SendImageToClients(int32 Width, int32 Hei
 	}
 }
 
-void FRemoteSessionFrameBufferChannel::ReceiveRemoteImage(FBackChannelOSCMessage& Message, FBackChannelOSCDispatch& Dispatch)
+void FRemoteSessionFrameBufferChannel::ReceiveHostImage(FBackChannelOSCMessage& Message, FBackChannelOSCDispatch& Dispatch)
 {
-	SCOPE_CYCLE_COUNTER(STAT_ImageDecompression);
-
 	int32 Width(0);
 	int32 Height(0);
 
@@ -212,41 +228,50 @@ void FRemoteSessionFrameBufferChannel::ReceiveRemoteImage(FBackChannelOSCMessage
 	Message << Height;
 	Message << *CompressedData;
 
-	IImageWrapperModule* ImageWrapperModule = FModuleManager::GetModulePtr<IImageWrapperModule>(FName("ImageWrapper"));
+	NumAsyncTasks.Increment();
 
-	if (ImageWrapperModule != nullptr)
+	AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [this, Width, Height, CompressedData]()
 	{
-		TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule->CreateImageWrapper(EImageFormat::JPEG);
+		SCOPE_CYCLE_COUNTER(STAT_ImageDecompression);
 
-		ImageWrapper->SetCompressed(CompressedData->GetData(), CompressedData->Num());
+		IImageWrapperModule* ImageWrapperModule = FModuleManager::GetModulePtr<IImageWrapperModule>(FName("ImageWrapper"));
 
-		const TArray<uint8>* RawData = nullptr;
-
-		if (ImageWrapper->GetRaw(ERGBFormat::BGRA, 8, RawData))
+		if (ImageWrapperModule != nullptr)
 		{
-			FScopeLock ImageLock(&ImageMutex);
+			TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule->CreateImageWrapper(EImageFormat::JPEG);
 
-			TSharedPtr<FQueuedFBImage> QueuedImage = MakeShareable(new FQueuedFBImage);
-			QueuedImage->Width = Width;
-			QueuedImage->Height = Height;
-			QueuedImage->ImageData = MoveTemp(*((TArray<uint8>*)RawData));
-			QueuedImages.Add(QueuedImage);
+			ImageWrapper->SetCompressed(CompressedData->GetData(), CompressedData->Num());
+
+			const TArray<uint8>* RawData = nullptr;
+
+			if (ImageWrapper->GetRaw(ERGBFormat::BGRA, 8, RawData))
+			{
+				FScopeLock ImageLock(&ImageMutex);
+
+				TSharedPtr<FQueuedFBImage> QueuedImage = MakeShareable(new FQueuedFBImage);
+				QueuedImage->Width = Width;
+				QueuedImage->Height = Height;
+				QueuedImage->ImageData = MoveTemp(*((TArray<uint8>*)RawData));
+				ReceivedImageQueue.Add(QueuedImage);
+			}
 		}
-	}
+
+		NumAsyncTasks.Decrement();
+	});
 }
 
-void FRemoteSessionFrameBufferChannel::CreateRemoteImage(const int32 InSlot, const int32 InWidth, const int32 InHeight)
+void FRemoteSessionFrameBufferChannel::CreateTexture(const int32 InSlot, const int32 InWidth, const int32 InHeight)
 {
-	if (RemoteImage[InSlot])
+	if (IncomingImage[InSlot])
 	{
-		RemoteImage[InSlot]->RemoveFromRoot();
-		RemoteImage[InSlot] = nullptr;
+		IncomingImage[InSlot]->RemoveFromRoot();
+		IncomingImage[InSlot] = nullptr;
 	}
 
-	RemoteImage[InSlot] = UTexture2D::CreateTransient(InWidth, InHeight);
+	IncomingImage[InSlot] = UTexture2D::CreateTransient(InWidth, InHeight);
 
-	RemoteImage[InSlot]->AddToRoot();
-	RemoteImage[InSlot]->UpdateResource();
+	IncomingImage[InSlot]->AddToRoot();
+	IncomingImage[InSlot]->UpdateResource();
 }
 
 
