@@ -1,7 +1,4 @@
-// Copyright 2017 Andrew Grant
-// This file is part of RemoteSession and is freely licensed for commercial and 
-// non-commercial use under an MIT license
-// See https://github.com/andrewgrant/RemoteSession for more info
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #include "Channels/RemoteSessionFrameBufferChannel.h"
 #include "Protocol/OSC/BackChannelOSCConnection.h"
@@ -136,6 +133,7 @@ void FRemoteSessionFrameBufferChannel::Tick(const float InDeltaTime)
 						Color.A = 255;
 					}
 
+					FPlatformProcess::SleepNoStats(0.02);
 					SendImageToClients(Size.X, Size.Y, *ColorData);
 
 					delete ColorData;
