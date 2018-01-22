@@ -18,6 +18,7 @@ FRemoteSessionClient::FRemoteSessionClient(const TCHAR* InHostAddress)
 	HostAddress = InHostAddress;
 	ConnectionAttemptTimer = FLT_MAX;		// attempt a connection asap
 	LastConnectionAttemptTime = 0;
+    ConnectionTimeout = 5;
 
 	IsConnecting = false;
 
@@ -47,6 +48,7 @@ void FRemoteSessionClient::Tick(float DeltaTime)
 			if (TimeSinceLastAttempt >= 5.0)
 			{
 				StartConnection();
+                LastConnectionAttemptTime = FPlatformTime::Seconds();
 			}
 		}
 
@@ -102,10 +104,12 @@ void FRemoteSessionClient::CheckConnection()
 
 		return true;
 	});
+    
+    const double TimeSpentConnecting = FPlatformTime::Seconds() - LastConnectionAttemptTime;
 
-	if (Success == false)
+	if (Success == false && TimeSpentConnecting >= ConnectionTimeout)
 	{
 		IsConnecting = false;
-		LastConnectionAttemptTime = FPlatformTime::Seconds();
+        Close();
 	}
 }

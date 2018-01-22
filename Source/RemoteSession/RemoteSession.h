@@ -22,7 +22,7 @@ public:
 
 	enum
 	{
-		kDefaultPort = 1010
+		kDefaultPort = 2049
 	};
 
 public:

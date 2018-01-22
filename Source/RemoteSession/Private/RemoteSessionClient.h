@@ -22,6 +22,7 @@ protected:
 	FString				HostAddress;
 	
 	bool				IsConnecting;
+    float               ConnectionTimeout;
 
 	double				ConnectionAttemptTimer;
 	double				LastConnectionAttemptTime;
