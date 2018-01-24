@@ -16,10 +16,7 @@ public:
 
 	virtual void Close();
 
-	virtual bool IsConnected() const
-	{
-		return OSCConnection.IsValid() && OSCConnection->IsConnected();
-	}
+	virtual bool IsConnected() const;
 
 	virtual void Tick( float DeltaTime );
 

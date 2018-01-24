@@ -17,7 +17,7 @@ FRemoteSessionClient::FRemoteSessionClient(const TCHAR* InHostAddress)
 {
 	HostAddress = InHostAddress;
 	ConnectionAttemptTimer = FLT_MAX;		// attempt a connection asap
-	LastConnectionAttemptTime = 0;
+	TimeConnectionAttemptStarted = 0;
     ConnectionTimeout = 5;
 
 	IsConnecting = false;
@@ -35,6 +35,13 @@ FRemoteSessionClient::~FRemoteSessionClient()
 	Close();
 }
 
+bool FRemoteSessionClient::IsConnected() const
+{
+	// this is to work-around the UE BSD socket implt always saying
+	// things are connected for the first 5 secs...
+	return FRemoteSessionRole::IsConnected() && Connection->GetPacketsReceived() > 0;
+}
+
 void FRemoteSessionClient::Tick(float DeltaTime)
 {
 	SCOPE_CYCLE_COUNTER(STAT_RDClientTick);
@@ -43,12 +50,11 @@ void FRemoteSessionClient::Tick(float DeltaTime)
 	{
 		if (IsConnecting == false)
 		{
-			const double TimeSinceLastAttempt = FPlatformTime::Seconds() - LastConnectionAttemptTime;
+			const double TimeSinceLastAttempt = FPlatformTime::Seconds() - TimeConnectionAttemptStarted;
 
 			if (TimeSinceLastAttempt >= 5.0)
 			{
 				StartConnection();
-                LastConnectionAttemptTime = FPlatformTime::Seconds();
 			}
 		}
 
@@ -76,15 +82,21 @@ void  FRemoteSessionClient::StartConnection()
 			if (Connection->Connect(*HostAddress))
 			{
 				IsConnecting = true;
+				check(Connection->GetSocket());
 			}
 		}
 	}
+
+	TimeConnectionAttemptStarted = FPlatformTime::Seconds();
 }
 
 void FRemoteSessionClient::CheckConnection()
 {
-	check(IsConnected() == false && IsConnecting);
+	check(IsConnected() == false && IsConnecting == true);
+	check(Connection->GetSocket());
 
+	// success indicates that our check was successful, if our connection was successful then
+	// the delegate code is called
 	bool Success = Connection->WaitForConnection(0, [this](auto InConnection) {
 		int32 WantedSize = 4 * 1024 * 1024;
 		int32 ActualSize(0);
@@ -96,20 +108,34 @@ void FRemoteSessionClient::CheckConnection()
 		Channels.Add(MakeShareable(new FRemoteSessionInputChannel(ERemoteSessionChannelMode::Send, OSCConnection)));
 		Channels.Add(MakeShareable(new FRemoteSessionFrameBufferChannel(ERemoteSessionChannelMode::Receive, OSCConnection)));
 
-		OSCConnection->Start();
-
 		UE_LOG(LogRemoteSession, Log, TEXT("Connected to host at %s (ReceiveSize=%dkb)"), *HostAddress, ActualSize / 1024);
 
 		IsConnecting = false;
 
+		OSCConnection->StartReceiveThread();
+		//SetReceiveInBackground(true);
+
 		return true;
 	});
-    
-    const double TimeSpentConnecting = FPlatformTime::Seconds() - LastConnectionAttemptTime;
 
-	if (Success == false && TimeSpentConnecting >= ConnectionTimeout)
+	const double TimeSpentConnecting = FPlatformTime::Seconds() - TimeConnectionAttemptStarted;
+
+	if (IsConnected() == false)
 	{
-		IsConnecting = false;
-        Close();
+		if (Success == false || TimeSpentConnecting >= ConnectionTimeout)
+		{
+			IsConnecting = false;
+			if (TimeSpentConnecting >= ConnectionTimeout)
+			{
+				UE_LOG(LogRemoteSession, Log, TEXT("Timing out connection attempt after %.02f seconds"), TimeSpentConnecting);	
+			}
+			else
+			{
+				UE_LOG(LogRemoteSession, Log, TEXT("Failed to check for connection. Aborting."));
+			}
+
+			Close();
+			TimeConnectionAttemptStarted = FPlatformTime::Seconds();
+		}
 	}
 }

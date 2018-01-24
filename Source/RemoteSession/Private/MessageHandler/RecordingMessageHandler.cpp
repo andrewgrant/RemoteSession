@@ -3,13 +3,10 @@
 #include "RecordingMessageHandler.h"
 #include "RemoteSession.h"
 #include "BackChannel/Protocol/OSC/BackChannelOSC.h"
-#include "BufferArchive.h"
-#include "MemoryReader.h"
+#include "Messages.h"
 #include "Engine/GameEngine.h"
 #include "Engine/GameViewportClient.h"
 #include "Async.h"
-
-PRAGMA_DISABLE_OPTIMIZATION
 
 // helper to serialize out const params
 template <typename S, typename T>
@@ -28,62 +25,6 @@ S& SerializeOut(S& Ar, const T& Value)
 
 
 
-template <typename P1, typename P2>
-struct TwoParamMsg
-{
-	P1	Param1;
-	P2	Param2;
-
-	TwoParamMsg(FArchive& Ar)
-	{
-		Ar << Param1;
-		Ar << Param2;
-	}
-
-	TwoParamMsg(P1 InParam1, P2 InParam2)
-	{
-		Param1 = InParam1;
-		Param2 = InParam2;
-	}
-
-	TArray<uint8> AsData()
-	{
-		FBufferArchive MemAr;
-		MemAr << Param1 << Param2;
-		return MemAr;
-	}
-};
-
-template <typename P1, typename P2, typename P3>
-struct ThreeParamMsg
-{
-	P1	Param1;
-	P2	Param2;
-	P3	Param3;
-
-	ThreeParamMsg(FArchive& Ar)
-	{
-		Ar << Param1;
-		Ar << Param2;
-		Ar << Param3;
-	}
-
-	ThreeParamMsg(P1 InParam1, P2 InParam2, P3 InParam3)
-	{
-		Param1 = InParam1;
-		Param2 = InParam2;
-		Param3 = InParam3;
-	}
-
-	TArray<uint8> AsData()
-	{
-		FBufferArchive MemAr;
-		MemAr << Param1 << Param2 << Param3;
-		return MemAr;
-	}
-};
-
-
 
 
 FRecordingMessageHandler::FRecordingMessageHandler(const TSharedPtr<FGenericApplicationMessageHandler>& InTargetHandler)
@@ -99,6 +40,10 @@ FRecordingMessageHandler::FRecordingMessageHandler(const TSharedPtr<FGenericAppl
 	BIND_PLAYBACK_HANDLER(TEXT("OnTouchStarted"), PlayOnTouchStarted);
 	BIND_PLAYBACK_HANDLER(TEXT("OnTouchMoved"), PlayOnTouchMoved);
 	BIND_PLAYBACK_HANDLER(TEXT("OnTouchEnded"), PlayOnTouchEnded);
+	BIND_PLAYBACK_HANDLER(TEXT("OnMotionDetected"), PlayOnMotionDetected);
+	BIND_PLAYBACK_HANDLER(TEXT("OnBeginGesture"), PlayOnBeginGesture);
+	BIND_PLAYBACK_HANDLER(TEXT("OnTouchGesture"), PlayOnTouchGesture);
+	BIND_PLAYBACK_HANDLER(TEXT("OnEndGesture"), PlayOnEndGesture);
 }
 
 #undef BIND_PLAYBACK_HANDLER
@@ -253,8 +198,6 @@ bool FRecordingMessageHandler::OnTouchStarted(const TSharedPtr< FGenericWindow >
 		return true;
 	}
 
-	
-
 	return FProxyMessageHandler::OnTouchStarted(Window, Location, TouchIndex, ControllerId);
 }
 
@@ -319,4 +262,90 @@ void FRecordingMessageHandler::PlayOnTouchEnded(FArchive& Ar)
 	OnTouchEnded(ScreenLocation, Msg.Param2, Msg.Param3);
 }
 
-PRAGMA_ENABLE_OPTIMIZATION
+void FRecordingMessageHandler::OnBeginGesture()
+{
+	if (IsRecording())
+	{
+		NoParamMsg Msg;
+		OutputWriter->RecordMessage(TEXT("OnBeginGesture"), Msg.AsData());
+	}
+
+	if (ConsumeInput)
+	{
+		return;
+	}
+
+	FProxyMessageHandler::OnBeginGesture();
+}
+
+void FRecordingMessageHandler::PlayOnBeginGesture(FArchive& Ar)
+{
+	OnBeginGesture();
+}
+
+bool FRecordingMessageHandler::OnTouchGesture(EGestureEvent GestureType, const FVector2D& Delta, float WheelDelta, bool bIsDirectionInvertedFromDevice)
+{
+	if (IsRecording())
+	{
+		FourParamMsg<uint32, FVector2D, float, bool> Msg((uint32)GestureType, Delta, WheelDelta, bIsDirectionInvertedFromDevice);
+		OutputWriter->RecordMessage(TEXT("OnTouchGesture"), Msg.AsData());
+	}
+
+	if (ConsumeInput)
+	{
+		return true;
+	}
+
+	return FProxyMessageHandler::OnTouchGesture(GestureType, Delta, WheelDelta, bIsDirectionInvertedFromDevice);
+}
+
+void FRecordingMessageHandler::PlayOnTouchGesture(FArchive& Ar)
+{
+	FourParamMsg<uint32, FVector2D, float, bool> Msg(Ar);
+	OnTouchGesture((EGestureEvent)Msg.Param1, Msg.Param2, Msg.Param3, Msg.Param4);
+}
+
+void FRecordingMessageHandler::OnEndGesture()
+{
+	if (IsRecording())
+	{
+		NoParamMsg Msg;
+		OutputWriter->RecordMessage(TEXT("OnEndGesture"), Msg.AsData());
+	}
+
+	if (ConsumeInput)
+	{
+		return;
+	}
+
+	FProxyMessageHandler::OnEndGesture();
+}
+
+void FRecordingMessageHandler::PlayOnEndGesture(FArchive& Ar)
+{
+	OnEndGesture();
+}
+
+
+bool FRecordingMessageHandler::OnMotionDetected(const FVector& Tilt, const FVector& RotationRate, const FVector& Gravity, const FVector& Acceleration, int32 ControllerId)
+{
+	/*if (IsRecording())
+	{
+		FiveParamMsg<FVector, FVector, FVector, FVector, int32> 
+			Msg(Tilt, RotationRate, Gravity, Acceleration, ControllerId);
+		OutputWriter->RecordMessage(TEXT("OnMotionDetected"), Msg.AsData());
+	}
+
+	if (ConsumeInput)
+	{
+		return true;
+	}*/
+
+	return FProxyMessageHandler::OnMotionDetected(Tilt, RotationRate, Gravity, Acceleration, ControllerId);
+}
+
+void FRecordingMessageHandler::PlayOnMotionDetected(FArchive& Ar)
+{
+	FiveParamMsg<FVector, FVector, FVector, FVector, int32 > Msg(Ar);
+	OnMotionDetected(Msg.Param1, Msg.Param2, Msg.Param3, Msg.Param4, Msg.Param5);
+}

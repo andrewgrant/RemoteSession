@@ -61,19 +61,32 @@ protected:
 
 	TSharedPtr<FFrameGrabber>				FrameGrabber;
 	
-	struct FQueuedFBImage
+	struct FImageData
 	{
+		FImageData() :
+			Width(0)
+			, Height(0)
+			, ImageIndex(0)
+		{
+		}
 		int32				Width;
 		int32				Height;
 		TArray<uint8>		ImageData;
+		int32				ImageIndex;
 	};
 
-	FCriticalSection					ImageMutex;
-	TArray<TSharedPtr<FQueuedFBImage>>	ReceivedImageQueue;
-	UTexture2D*							IncomingImage[2];
-	int32								CurrentImageIndex;
-	FThreadSafeCounter					NumAsyncTasks;
+	FCriticalSection										IncomingImageMutex;
+	TArray<TSharedPtr<FImageData, ESPMode::ThreadSafe>>		IncomingEncodedImages;
+
+	FCriticalSection										DecodedImageMutex;
+	TArray<TSharedPtr<FImageData>>							IncomingDecodedImages;
+	FThreadSafeCounter										NumDecodingTasks;
+
+	UTexture2D*												DecodedTextures[2];
+	int32													DecodedTextureIndex;
 
 	/** Time we last sent an image */
 	double LastSentImageTime;
+	int KickedTaskCount;
+	int NumSentImages;
 };

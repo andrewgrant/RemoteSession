@@ -1,6 +1,6 @@
 // Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
-
 #include "Channels/RemoteSessionFrameBufferChannel.h"
+#include "RemoteSession.h"
 #include "Protocol/OSC/BackChannelOSCConnection.h"
 #include "Protocol/OSC/BackChannelOSCMessage.h"
 #include "IConsoleManager.h"
@@ -12,9 +12,13 @@
 #include "ModuleManager.h"
 
 DECLARE_CYCLE_STAT(TEXT("RSFrameBufferCap"), STAT_FrameBufferCapture, STATGROUP_Game);
-DECLARE_CYCLE_STAT(TEXT("RSTextureUpdate"), STAT_TextureUpdate, STATGROUP_Game);
 DECLARE_CYCLE_STAT(TEXT("RSImageCompression"), STAT_ImageCompression, STATGROUP_Game);
+
+DECLARE_CYCLE_STAT(TEXT("RSTextureUpdate"), STAT_TextureUpdate, STATGROUP_Game);
 DECLARE_CYCLE_STAT(TEXT("RSImageDecompression"), STAT_ImageDecompression, STATGROUP_Game);
+DECLARE_CYCLE_STAT(TEXT("RSNumTicks"), STAT_RSNumTicks, STATGROUP_Game);
+DECLARE_CYCLE_STAT(TEXT("RSReadyFrameCount"), STAT_RSNumFrames, STATGROUP_Game);
+DECLARE_CYCLE_STAT(TEXT("RSDecodingFrameCount"), STAT_RSDecodingFrames, STATGROUP_Game);
 
 static int32 FramerateMasterSetting = 0;
 static FAutoConsoleVariableRef CVarFramerateOverride(
@@ -34,9 +38,11 @@ FRemoteSessionFrameBufferChannel::FRemoteSessionFrameBufferChannel(ERemoteSessio
 {
 	LastSentImageTime = 0.0;
 	Connection = InConnection;
-	IncomingImage[0] = nullptr;
-	IncomingImage[1] = nullptr;
-	CurrentImageIndex = 0;
+	DecodedTextures[0] = nullptr;
+	DecodedTextures[1] = nullptr;
+	DecodedTextureIndex = 0;
+	NumSentImages = 0;
+	KickedTaskCount = 0;
 	Role = InRole;
 
 	if (Role == ERemoteSessionChannelMode::Receive)
@@ -48,7 +54,7 @@ FRemoteSessionFrameBufferChannel::FRemoteSessionFrameBufferChannel(ERemoteSessio
 
 FRemoteSessionFrameBufferChannel::~FRemoteSessionFrameBufferChannel()
 {
-	while (NumAsyncTasks.GetValue() > 0)
+	while (NumDecodingTasks.GetValue() > 0)
 	{
 		FPlatformProcess::SleepNoStats(0);
 	}
@@ -61,10 +67,10 @@ FRemoteSessionFrameBufferChannel::~FRemoteSessionFrameBufferChannel()
 
 	for (int32 i = 0; i < 2; i++)
 	{
-		if (IncomingImage[i])
+		if (DecodedTextures[i])
 		{
-			IncomingImage[i]->RemoveFromRoot();
-			IncomingImage[i] = nullptr;
+			DecodedTextures[i]->RemoveFromRoot();
+			DecodedTextures[i] = nullptr;
 		}
 	}
 }
@@ -96,11 +102,13 @@ void FRemoteSessionFrameBufferChannel::SetCaptureViewport(TSharedRef<FSceneViewp
 
 UTexture2D* FRemoteSessionFrameBufferChannel::GetHostScreen() const
 {
-	return IncomingImage[CurrentImageIndex];
+	return DecodedTextures[DecodedTextureIndex];
 }
 
 void FRemoteSessionFrameBufferChannel::Tick(const float InDeltaTime)
 {
+	INC_DWORD_STAT(STAT_RSNumTicks);
+
 	if (FrameGrabber.IsValid())
 	{
 		SCOPE_CYCLE_COUNTER(STAT_FrameBufferCapture);
@@ -122,7 +130,7 @@ void FRemoteSessionFrameBufferChannel::Tick(const float InDeltaTime)
 
 				FIntPoint Size = LastFrame.BufferSize;
 
-				NumAsyncTasks.Increment();
+				NumDecodingTasks.Increment();
 
 				AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [this, Size, ColorData]()
 				{
@@ -133,12 +141,11 @@ void FRemoteSessionFrameBufferChannel::Tick(const float InDeltaTime)
 						Color.A = 255;
 					}
 
-					FPlatformProcess::SleepNoStats(0.02);
 					SendImageToClients(Size.X, Size.Y, *ColorData);
 
 					delete ColorData;
 
-					NumAsyncTasks.Decrement();
+					NumDecodingTasks.Decrement();
 				});
 
 				LastSentImageTime = FPlatformTime::Seconds();
@@ -150,25 +157,30 @@ void FRemoteSessionFrameBufferChannel::Tick(const float InDeltaTime)
 	{
 		SCOPE_CYCLE_COUNTER(STAT_TextureUpdate);
 
-		TSharedPtr<FQueuedFBImage> QueuedImage;
+		TSharedPtr<FImageData> QueuedImage;
 
 		{
 			// Check to see if there are any queued images. We just care about the last
-			FScopeLock ImageLock(&ImageMutex);
-			if (ReceivedImageQueue.Num())
+			FScopeLock ImageLock(&DecodedImageMutex);
+			if (IncomingDecodedImages.Num())
 			{
-				QueuedImage = ReceivedImageQueue.Last();
-				ReceivedImageQueue.Empty();
+				INC_DWORD_STAT(STAT_RSNumFrames);
+				QueuedImage = IncomingDecodedImages.Last();
+
+				UE_LOG(LogRemoteSession, Verbose, TEXT("GT: Image %d is ready, discarding %d earlier images"),
+					QueuedImage->ImageIndex, IncomingDecodedImages.Num()-1);
+
+				IncomingDecodedImages.Empty();
 			}
 		}
 
 		// If an image was waiting...
 		if (QueuedImage.IsValid())
 		{
-			int32 NextImage = CurrentImageIndex == 0 ? 1 : 0;
+			int32 NextImage = DecodedTextureIndex == 0 ? 1 : 0;
 
 			// create a texture if we don't have a suitable one
-			if (IncomingImage[NextImage] == nullptr || QueuedImage->Width != IncomingImage[NextImage]->GetSizeX() || QueuedImage->Height != IncomingImage[NextImage]->GetSizeY())
+			if (DecodedTextures[NextImage] == nullptr || QueuedImage->Width != DecodedTextures[NextImage]->GetSizeX() || QueuedImage->Height != DecodedTextures[NextImage]->GetSizeY())
 			{
 				CreateTexture(NextImage, QueuedImage->Width, QueuedImage->Height);
 			}
@@ -177,11 +189,14 @@ void FRemoteSessionFrameBufferChannel::Tick(const float InDeltaTime)
 			FUpdateTextureRegion2D* Region = new FUpdateTextureRegion2D(0, 0, 0, 0, QueuedImage->Width, QueuedImage->Height);
 			TArray<uint8>* TextureData = new TArray<uint8>(MoveTemp(QueuedImage->ImageData));
 
-			IncomingImage[NextImage]->UpdateTextureRegions(0, 1, Region, 4 * QueuedImage->Width, 8, TextureData->GetData(), [this, NextImage](auto InTextureData, auto InRegions) {
-				CurrentImageIndex = NextImage;
+			DecodedTextures[NextImage]->UpdateTextureRegions(0, 1, Region, 4 * QueuedImage->Width, 8, TextureData->GetData(), [this, NextImage](auto InTextureData, auto InRegions) {
+				DecodedTextureIndex = NextImage;
 				delete InTextureData;
 				delete InRegions;
 			});
+
+			UE_LOG(LogRemoteSession, Verbose, TEXT("GT: Uploaded image %d"),
+				QueuedImage->ImageIndex);
 		}
 	}
 }
@@ -195,6 +210,8 @@ void FRemoteSessionFrameBufferChannel::SendImageToClients(int32 Width, int32 Hei
 
 	if (LocalConnection.IsValid() && SkipImages == false)
 	{
+		const double TimeNow = FPlatformTime::Seconds();
+
 		// created on demand because there can be multiple SendImage requests in flight
 		IImageWrapperModule* ImageWrapperModule = FModuleManager::GetModulePtr<IImageWrapperModule>(FName("ImageWrapper"));
 
@@ -210,7 +227,11 @@ void FRemoteSessionFrameBufferChannel::SendImageToClients(int32 Width, int32 Hei
 			Msg.Write(Width);
 			Msg.Write(Height);
 			Msg.Write(JPGData);
+			Msg.Write(++NumSentImages);
 			LocalConnection->SendPacket(Msg);
+
+			UE_LOG(LogRemoteSession, Verbose, TEXT("Sent image %d in %.02f ms"),
+				NumSentImages, (FPlatformTime::Seconds() - TimeNow) * 1000.0);
 		}
 	}
 }
@@ -220,56 +241,107 @@ void FRemoteSessionFrameBufferChannel::ReceiveHostImage(FBackChannelOSCMessage& 
 	int32 Width(0);
 	int32 Height(0);
 
-	TSharedPtr<TArray<uint8>, ESPMode::ThreadSafe> CompressedData = MakeShareable(new TArray<uint8>());
+	TSharedPtr<FImageData, ESPMode::ThreadSafe> ReceivedImage = MakeShareable(new FImageData);
 
-	Message << Width;
-	Message << Height;
-	Message << *CompressedData;
+	Message << ReceivedImage->Width;
+	Message << ReceivedImage->Height;
+	Message << ReceivedImage->ImageData;
+	Message << ReceivedImage->ImageIndex;
 
-	NumAsyncTasks.Increment();
+	FScopeLock Lock(&IncomingImageMutex);
+	IncomingEncodedImages.Add(ReceivedImage);
 
-	AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [this, Width, Height, CompressedData]()
+	UE_LOG(LogRemoteSession, Verbose, TEXT("Received Image %d, %d pending"), 
+		ReceivedImage->ImageIndex, IncomingEncodedImages.Num());
+
+	if (NumDecodingTasks.GetValue() == 0)
 	{
-		SCOPE_CYCLE_COUNTER(STAT_ImageDecompression);
+		NumDecodingTasks.Increment();
+		KickedTaskCount++;
 
-		IImageWrapperModule* ImageWrapperModule = FModuleManager::GetModulePtr<IImageWrapperModule>(FName("ImageWrapper"));
-
-		if (ImageWrapperModule != nullptr)
+		AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [this]()
 		{
-			TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule->CreateImageWrapper(EImageFormat::JPEG);
+			SCOPE_CYCLE_COUNTER(STAT_ImageDecompression);
 
-			ImageWrapper->SetCompressed(CompressedData->GetData(), CompressedData->Num());
+			int ProcessedImageCount = 0;
 
-			const TArray<uint8>* RawData = nullptr;
-
-			if (ImageWrapper->GetRaw(ERGBFormat::BGRA, 8, RawData))
+			do
 			{
-				FScopeLock ImageLock(&ImageMutex);
+				TSharedPtr<FImageData, ESPMode::ThreadSafe> Image;
 
-				TSharedPtr<FQueuedFBImage> QueuedImage = MakeShareable(new FQueuedFBImage);
-				QueuedImage->Width = Width;
-				QueuedImage->Height = Height;
-				QueuedImage->ImageData = MoveTemp(*((TArray<uint8>*)RawData));
-				ReceivedImageQueue.Add(QueuedImage);
-			}
-		}
+				const double StartTime = FPlatformTime::Seconds();
 
-		NumAsyncTasks.Decrement();
-	});
+				{
+					// check if there's anything to do, if not this task is done
+					FScopeLock TaskLock(&IncomingImageMutex);
+
+					if (IncomingEncodedImages.Num() == 0)
+					{
+						NumDecodingTasks.Decrement();
+						return;
+					}
+
+					// take the last image we don't care about the rest
+					Image = IncomingEncodedImages.Last();
+
+					UE_LOG(LogRemoteSession, Verbose, TEXT("Processing Image %d, discarding %d other pending images"),
+						Image->ImageIndex, IncomingEncodedImages.Num()-1);
+
+					IncomingEncodedImages.Empty();
+				}
+
+				IImageWrapperModule* ImageWrapperModule = FModuleManager::GetModulePtr<IImageWrapperModule>(FName("ImageWrapper"));
+
+				if (ImageWrapperModule != nullptr)
+				{
+					TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule->CreateImageWrapper(EImageFormat::JPEG);
+
+					ImageWrapper->SetCompressed(Image->ImageData.GetData(), Image->ImageData.Num());
+
+					const TArray<uint8>* RawData = nullptr;
+
+					if (ImageWrapper->GetRaw(ERGBFormat::BGRA, 8, RawData))
+					{
+						TSharedPtr<FImageData> QueuedImage = MakeShareable(new FImageData);
+						QueuedImage->Width = Image->Width;
+						QueuedImage->Height = Image->Height;
+						QueuedImage->ImageData = MoveTemp(*((TArray<uint8>*)RawData));
+						QueuedImage->ImageIndex = Image->ImageIndex;
+
+						{
+							FScopeLock ImageLock(&DecodedImageMutex);
+							IncomingDecodedImages.Add(QueuedImage);
+
+							UE_LOG(LogRemoteSession, Verbose, TEXT("finished decompressing image %d in %.02f ms (%d in queue)"),
+								Image->ImageIndex,
+								(FPlatformTime::Seconds() - StartTime) * 1000.0,
+								IncomingEncodedImages.Num());
+						}
+					}
+				}
+
+			} while (true);
+
+			UE_LOG(LogRemoteSession, Verbose, TEXT("No remaining images for task %d (%d processed). Exiting."),
+				KickedTaskCount, ProcessedImageCount);
+		});
+	}
 }
 
 void FRemoteSessionFrameBufferChannel::CreateTexture(const int32 InSlot, const int32 InWidth, const int32 InHeight)
 {
-	if (IncomingImage[InSlot])
+	if (DecodedTextures[InSlot])
 	{
-		IncomingImage[InSlot]->RemoveFromRoot();
-		IncomingImage[InSlot] = nullptr;
+		DecodedTextures[InSlot]->RemoveFromRoot();
+		DecodedTextures[InSlot] = nullptr;
 	}
 
-	IncomingImage[InSlot] = UTexture2D::CreateTransient(InWidth, InHeight);
+	DecodedTextures[InSlot] = UTexture2D::CreateTransient(InWidth, InHeight);
 
-	IncomingImage[InSlot]->AddToRoot();
-	IncomingImage[InSlot]->UpdateResource();
+	DecodedTextures[InSlot]->AddToRoot();
+	DecodedTextures[InSlot]->UpdateResource();
+
+	UE_LOG(LogRemoteSession, Log, TEXT("Created texture in slot %d %dx%d for incoming image"), InSlot, InWidth, InHeight);
 }
 
 

@@ -17,6 +17,7 @@ PRAGMA_DISABLE_OPTIMIZATION
 FRemoteSessionHost::FRemoteSessionHost(int32 InQuality, int32 InFramerate)
 {
 	Quality = InQuality;
+	Framerate = InFramerate;
 }
 
 FRemoteSessionHost::~FRemoteSessionHost()
@@ -111,7 +112,7 @@ bool FRemoteSessionHost::ProcessIncomingConnection(TSharedRef<IBackChannelConnec
 		Channels.Add(FramebufferChannel);
 	}
 
-	OSCConnection->Start();
+	OSCConnection->StartReceiveThread();
 
 	return true;
 }

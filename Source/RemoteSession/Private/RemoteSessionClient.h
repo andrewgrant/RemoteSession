@@ -14,6 +14,8 @@ public:
 
 	virtual void Tick(float DeltaTime) override;
 
+	virtual bool IsConnected() const override;
+
 protected:
 
 	void StartConnection();
@@ -25,5 +27,5 @@ protected:
     float               ConnectionTimeout;
 
 	double				ConnectionAttemptTimer;
-	double				LastConnectionAttemptTime;
+	double				TimeConnectionAttemptStarted;
 };

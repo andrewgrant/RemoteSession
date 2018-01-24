@@ -9,16 +9,17 @@ DEFINE_LOG_CATEGORY(LogRemoteSession);
 
 FRemoteSessionRole::~FRemoteSessionRole()
 {
-	StopBackgroundThread();
-	Channels.Empty();
 	Close();
 }
 
 void FRemoteSessionRole::Close()
 {
-	Channels.Empty();
+	// order is specific since OSC uses the connection, and
+	// dispatches to channels
+	StopBackgroundThread();
 	OSCConnection = nullptr;
 	Connection = nullptr;
+	Channels.Empty();
 }
 
 void FRemoteSessionRole::Tick(float DeltaTime)
@@ -27,7 +28,7 @@ void FRemoteSessionRole::Tick(float DeltaTime)
 	{
 		if (OSCConnection->IsConnected())
 		{
-			if (ThreadRunning == false)
+			if (ThreadRunning == false && OSCConnection->IsThreaded() == false)
 			{
 				OSCConnection->ReceivePackets();
 			}
@@ -63,18 +64,26 @@ void FRemoteSessionRole::StartBackgroundThread()
 	ThreadExitRequested = false;
 	ThreadRunning = true;
 
-	FRunnableThread* Thread = FRunnableThread::Create(this, TEXT("RemoteSessionClientThread"));
+	FRunnableThread* Thread = FRunnableThread::Create(this, TEXT("RemoteSessionClientThread"), 
+		1024 * 1024, 
+		TPri_AboveNormal);
+}
+
+bool FRemoteSessionRole::IsConnected() const
+{
+	return OSCConnection.IsValid() && OSCConnection->IsConnected();
 }
 
 uint32 FRemoteSessionRole::Run()
 {
+	/* Not used and likely to be removed! */
 	double LastTick = FPlatformTime::Seconds();
 
 	while (ThreadExitRequested == false)
 	{
 		const double DeltaTime = FPlatformTime::Seconds() - LastTick;
 
-		if (IsConnected() == false)
+		if (OSCConnection.IsValid() == false || OSCConnection->IsConnected() == false)
 		{
 			FPlatformProcess::SleepNoStats(0);
 			continue;
@@ -84,6 +93,7 @@ uint32 FRemoteSessionRole::Run()
 		LastTick = FPlatformTime::Seconds();
 	}
 
+	ThreadRunning = false;
 	return 0;
 }
 
