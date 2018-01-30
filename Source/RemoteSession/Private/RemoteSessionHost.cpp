@@ -9,9 +9,10 @@
 #include "Channels/RemoteSessionFrameBufferChannel.h"
 #include "Engine/GameEngine.h"
 
-
-PRAGMA_DISABLE_OPTIMIZATION
-
+#if WITH_EDITOR
+	#include "Editor.h"
+	#include "Editor/EditorEngine.h"
+#endif
 
 
 FRemoteSessionHost::FRemoteSessionHost(int32 InQuality, int32 InFramerate)
@@ -123,14 +124,10 @@ void FRemoteSessionHost::Tick(float DeltaTime)
 	// non-threaded listener
 	if (IsConnected() == false)
 	{
-		Listener->WaitForConnection(0, [this](TSharedRef<IBackChannelConnection> Connection) {
-			return ProcessIncomingConnection(Connection);
+		Listener->WaitForConnection(0, [this](TSharedRef<IBackChannelConnection> InConnection) {
+			return ProcessIncomingConnection(InConnection);
 		});
 	}
 	
 	FRemoteSessionRole::Tick(DeltaTime);
 }
-
-
-
-PRAGMA_ENABLE_OPTIMIZATION

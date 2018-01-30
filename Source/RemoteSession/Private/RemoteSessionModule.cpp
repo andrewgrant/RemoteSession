@@ -39,6 +39,7 @@ public:
 	void StartupModule()
 	{
 		bool bAutoHostWithGame = true;
+
 		DefaultPort = IRemoteSessionModule::kDefaultPort;
 		Quality = 85;
 		Framerate = 30;
@@ -50,7 +51,10 @@ public:
 		GConfig->GetInt(TEXT("RemoteSession"), TEXT("Quality"), Quality, GEngineIni);
 		GConfig->GetInt(TEXT("RemoteSession"), TEXT("Framerate"), Framerate, GEngineIni);
 
-		if (PLATFORM_DESKTOP)
+
+		if (PLATFORM_DESKTOP 
+			&& IsRunningDedicatedServer() == false 
+			&& IsRunningCommandlet() == false)
 		{
 			if (GIsEditor)
 			{
@@ -111,11 +115,21 @@ public:
 
 	virtual void InitHost(const int16 Port = 0) override
 	{
-#if !UE_BUILD_SHIPPING
 		if (Host.IsValid())
 		{
 			Host = nullptr;
 		}
+
+#if UE_BUILD_SHIPPING
+		bool bAllowInShipping = false;
+		GConfig->GetBool(TEXT("RemoteSession"), TEXT("bAllowInShipping"), bAllowInShipping, GEngineIni);
+
+		if (bAllowInShipping == false)
+		{
+			UE_LOG(LogRemoteSession, Log, TEXT("RemoteSession is disabled. Shipping=1"));
+			return;
+		}
+#endif
 
 		TSharedPtr<FRemoteSessionHost> NewHost = MakeShareable(new FRemoteSessionHost(Quality, Framerate));
 
@@ -130,9 +144,6 @@ public:
 		{
 			UE_LOG(LogRemoteSession, Error, TEXT("Failed to start host listening on port %d"), SelectedPort);
 		}
-#else
-		UE_LOG(LogRemoteSession, Log, TEXT("RemoteSession is disabled. Shipping=1"));
-#endif
 	}
 
 	virtual bool IsHostRunning() const override
