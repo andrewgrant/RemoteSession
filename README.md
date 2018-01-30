@@ -16,6 +16,7 @@ There are a number of options that can be configured by putting one or more of t
 
 The values shown below are the current defaults. If you do not want to change from the defaults then I recommend not adding the line to your ini file incase they change in the future.
 
+<pre>
 [RemoteSession]
 ; Start a host when the game runs
 bAutoHostWithGame=true
@@ -29,6 +30,7 @@ Framerate=30
 HostPort=2049
 ; Whether RemoteSession runs in shipping builds
 bAllowInShipping=false
+</pre>
 
 
 Framerate and Quality can be adjusted at runtime via the remote.framerate and remote.quality cvars.
