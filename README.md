@@ -3,10 +3,10 @@ A plugin for Unreal that allows one instance to act as a thin-client (rendering 
 
 ## Setup Info
 
-*Get the BackChannel plugin (https://github.com/andrewgrant/BackChannel)
-*Copy RemoteSession and BackChannel to your MyProject/PluginsFolder
-*Build
-*Start your project with -game or use Play In New Editor window (Play In Viewport is not currently supported)
+* Get the BackChannel plugin (https://github.com/andrewgrant/BackChannel)
+* Copy RemoteSession and BackChannel to your MyProject/PluginsFolder
+* Build
+* Start your project with -game or use Play In New Editor window (Play In Viewport is not currently supported)
 * Start the RemoteSessionApp on your mobile device and enter the IP address of the machine running the game
 
 
