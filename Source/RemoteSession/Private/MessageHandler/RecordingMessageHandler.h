@@ -116,5 +116,7 @@ protected:
 	TMap<FString, FRecordedMessageDispatch> DispatchTable;
 
 	FRect								InputRect;
+    FVector2D                           LastTouchLocation;
+    bool                                bIsTouching;
 
 };
