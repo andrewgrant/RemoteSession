@@ -56,7 +56,10 @@ bool FRemoteSessionHost::StartListening(const uint16 InPort)
 	{
 		Listener = Transport->CreateConnection(IBackChannelTransport::TCP);
 
-		Listener->Listen(InPort);
+		if (Listener->Listen(InPort) == false)
+		{
+			Listener = nullptr;
+		}
 	}
 
 	return Listener.IsValid();

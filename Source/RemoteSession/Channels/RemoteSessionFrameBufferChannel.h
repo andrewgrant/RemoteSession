@@ -3,7 +3,7 @@
 #pragma once
 
 #include "RemoteSessionChannel.h"
-#include "ThreadSafeCounter.h"
+#include "HAL/ThreadSafeCounter.h"
 
 
 class FBackChannelOSCMessage;
