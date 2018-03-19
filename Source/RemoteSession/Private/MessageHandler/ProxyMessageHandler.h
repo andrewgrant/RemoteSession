@@ -3,7 +3,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GenericApplicationMessageHandler.h"
+#include "GenericPlatform/GenericApplicationMessageHandler.h"
+
+#define REMOTE_WITH_FORCE_PARAM (ENGINE_MINOR_VERSION >= 20)
 
 class FProxyMessageHandler : public FGenericApplicationMessageHandler
 {
@@ -56,9 +58,15 @@ public:
 
 	virtual void OnEndGesture() override;
 
+#if REMOTE_WITH_FORCE_PARAM
+	virtual bool OnTouchStarted(const TSharedPtr< FGenericWindow >& Window, const FVector2D& Location, float Force, int32 TouchIndex, int32 ControllerId) override;
+
+	virtual bool OnTouchMoved(const FVector2D& Location, float Force, int32 TouchIndex, int32 ControllerId) override;
+#else
 	virtual bool OnTouchStarted(const TSharedPtr< FGenericWindow >& Window, const FVector2D& Location, int32 TouchIndex, int32 ControllerId) override;
 
 	virtual bool OnTouchMoved(const FVector2D& Location, int32 TouchIndex, int32 ControllerId) override;
+#endif // REMOTE_WITH_FORCE_PARAM
 
 	virtual bool OnTouchEnded(const FVector2D& Location, int32 TouchIndex, int32 ControllerId) override;
 

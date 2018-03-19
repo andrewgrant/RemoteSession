@@ -6,7 +6,7 @@
 #include "Messages.h"
 #include "Engine/GameEngine.h"
 #include "Engine/GameViewportClient.h"
-#include "Async.h"
+#include "Async/Async.h"
 
 // helper to serialize out const params
 template <typename S, typename T>
@@ -208,19 +208,27 @@ void FRecordingMessageHandler::PlayOnKeyUp(FArchive& Ar)
 	OnKeyUp(Msg.Param1, Msg.Param2, Msg.Param3);
 }
 
+#if REMOTE_WITH_FORCE_PARAM
+bool FRecordingMessageHandler::OnTouchStarted(const TSharedPtr< FGenericWindow >& Window, const FVector2D& Location, float Force, int32 TouchIndex, int32 ControllerId)
+#else
 bool FRecordingMessageHandler::OnTouchStarted(const TSharedPtr< FGenericWindow >& Window, const FVector2D& Location, int32 TouchIndex, int32 ControllerId)
+#endif
 {
 	if (IsRecording())
 	{
 		FVector2D Normalized;
 
+#if !REMOTE_WITH_FORCE_PARAM
+		float Force = 1.0f;
+#endif
+
 		if (ConvertToNormalizedScreenLocation(Location, Normalized))
 		{
-			ThreeParamMsg<FVector2D, int32, int32> Msg(Normalized, TouchIndex, ControllerId);
+			// note - force is serialized last for backwards compat - force was introduced in 4.20
+			FourParamMsg<FVector2D, int32, int32, float> Msg(Normalized, TouchIndex, ControllerId, Force);
 			RecordMessage(TEXT("OnTouchStarted"), Msg.AsData());
-            
-            bIsTouching = true;
-            LastTouchLocation = Location;
+			bIsTouching = true;
+			LastTouchLocation = Location;
 		}
 	}
 
@@ -229,12 +237,16 @@ bool FRecordingMessageHandler::OnTouchStarted(const TSharedPtr< FGenericWindow >
 		return true;
 	}
 
+#if REMOTE_WITH_FORCE_PARAM
+	return FProxyMessageHandler::OnTouchStarted(Window, Location, Force, TouchIndex, ControllerId);
+#else
 	return FProxyMessageHandler::OnTouchStarted(Window, Location, TouchIndex, ControllerId);
+#endif
 }
 
 void FRecordingMessageHandler::PlayOnTouchStarted(FArchive& Ar)
 {
-	ThreeParamMsg<FVector2D, int32, int32 > Msg(Ar);
+	FourParamMsg<FVector2D, int32, int32, float > Msg(Ar);
 	FVector2D ScreenLocation = ConvertFromNormalizedScreenLocation(Msg.Param1);
 
 	TSharedPtr<FGenericWindow> Window;
@@ -244,22 +256,34 @@ void FRecordingMessageHandler::PlayOnTouchStarted(FArchive& Ar)
 		Window = PlaybackWindow.Pin()->GetNativeWindow();
 	}
 
+#if REMOTE_WITH_FORCE_PARAM
+	// note - force is serialized last for backwards compat - force was introduced in 4.20
+	OnTouchStarted(Window, ScreenLocation, Msg.Param4, Msg.Param2, Msg.Param3 );
+#else
 	OnTouchStarted(Window, ScreenLocation, Msg.Param2, Msg.Param3);
+#endif
 }
 
+#if REMOTE_WITH_FORCE_PARAM
+bool FRecordingMessageHandler::OnTouchMoved(const FVector2D& Location, float Force, int32 TouchIndex, int32 ControllerId)
+#else
 bool FRecordingMessageHandler::OnTouchMoved(const FVector2D& Location, int32 TouchIndex, int32 ControllerId)
+#endif
 {
 	if (IsRecording())
 	{
 		FVector2D Normalized;
 
+#if !REMOTE_WITH_FORCE_PARAM
+		float Force = 1.0f;
+#endif
 		if (ConvertToNormalizedScreenLocation(Location, Normalized))
 		{
-			ThreeParamMsg<FVector2D, int32, int32> Msg(Normalized, TouchIndex, ControllerId);
+			// note - force is serialized last for backwards compat - force was introduced in 4.20
+			FourParamMsg<FVector2D, int32, int32, float> Msg(Normalized, TouchIndex, ControllerId, Force);
 			OutputWriter->RecordMessage(TEXT("OnTouchMoved"), Msg.AsData());
-            
-            bIsTouching = true;
-            LastTouchLocation = Location;
+			bIsTouching = true;
+			LastTouchLocation = Location;
 		}
 	}
 
@@ -268,14 +292,23 @@ bool FRecordingMessageHandler::OnTouchMoved(const FVector2D& Location, int32 Tou
 		return true;
 	}
 
+#if REMOTE_WITH_FORCE_PARAM
+	return FProxyMessageHandler::OnTouchMoved(Location, Force, TouchIndex, ControllerId);
+#else
 	return FProxyMessageHandler::OnTouchMoved(Location, TouchIndex, ControllerId);
+#endif
 }
 
 void FRecordingMessageHandler::PlayOnTouchMoved(FArchive& Ar)
 {
-	ThreeParamMsg<FVector2D, int32, int32 > Msg(Ar);
+	FourParamMsg<FVector2D, int32, int32, float > Msg(Ar);
 	FVector2D ScreenLocation = ConvertFromNormalizedScreenLocation(Msg.Param1);
+#if REMOTE_WITH_FORCE_PARAM
+	// note - force is serialized last for backwards compat - force was introduced in 4.20
+	OnTouchMoved(ScreenLocation, Msg.Param4, Msg.Param2, Msg.Param3);
+#else
 	OnTouchMoved(ScreenLocation, Msg.Param2, Msg.Param3);
+#endif
 }
 
 bool FRecordingMessageHandler::OnTouchEnded(const FVector2D& Location, int32 TouchIndex, int32 ControllerId)
